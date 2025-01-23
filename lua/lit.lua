@@ -2,6 +2,11 @@ local M = {}
 
 local uv = vim.uv
 
+
+---TODO: fetch recent commits
+-- curl -s "https://api.github.com/repos/neo451/feed.nvim/commits?per_page=5" | jq '.[] | {sha: .sha, message: .commit.message}'
+-- git ls-remote --heads --tags https://github.com/neo451/feed.nvim
+
 local Config = {
    init = vim.fn.stdpath "config" .. "/" .. "init.md",
    path = vim.fn.stdpath("data") .. "/site/pack/lit/",
@@ -54,9 +59,9 @@ local Packages = {} -- Table of pkgs loaded from the init.md
 
 ---@param name string
 ---@param msg_op lit.message
----@param result boolean
----@param n integer
----@param total integer
+---@param result "ok" | "err" | "nop"
+---@param n integer?
+---@param total integer?
 local function report(name, msg_op, result, n, total)
    local count = n and string.format(" [%d/%d]", n, total) or ""
    vim.notify(
@@ -141,9 +146,11 @@ local function get_git_hash(dir)
    return head_ref and first_line(dir .. "/.git/" .. head_ref:gsub("ref: ", ""))
 end
 
----@param str string
+---@param str string?
 ---@return table<string, lit.pkg>
 local tangle = function(str)
+   if not str then return {} end
+
    local lpeg = vim.lpeg
    local P, C, Ct, S = lpeg.P, lpeg.C, lpeg.Ct, lpeg.S
 
@@ -195,9 +202,9 @@ local tangle = function(str)
    local code_blocks = code_block ^ 0
    local entry = ((heading * desc * code_blocks) / parse_entry) * nl ^ 0
    local dash = P "---"
-   local header = dash * nl * C((1 - P '-') ^ 0) / function(str)
+   local header = dash * nl * C((1 - P '-') ^ 0) / function(header_str)
       local ret = { o = {}, g = {} }
-      for line in vim.gsplit(str, "\n") do
+      for line in vim.gsplit(header_str, "\n") do
          local k, v = line:match("([^:]+):%s*(.*)")
          if k and v then
             if k:sub(1, 1) == "g" then
@@ -307,7 +314,7 @@ local function pull(pkg, counter, build_queue)
    vim.system({ "git", "pull", "--recurse-submodules", "--update-shallow" }, { cwd = pkg.dir },
       vim.schedule_wrap(function(obj)
          if obj.code ~= 0 then
-            vim.notify("update err for " .. pkg.name)
+            counter(pkg.name, Messages.update, "err")
          end
          -- else
          local cur_hash = get_git_hash(pkg.dir)
@@ -316,7 +323,6 @@ local function pull(pkg, counter, build_queue)
             pkg.status, pkg.hash = Status.UPDATED, cur_hash
             lock_write()
             counter(pkg.name, Messages.update, "ok")
-            vim.notify("update success for " .. pkg.name)
             if pkg.build then
                table.insert(build_queue, pkg)
             end
@@ -348,13 +354,7 @@ local function remove(pkg, counter)
    end
 end
 
----@alias lit.op
----| '"install"'
----| '"update"'
----| '"remove"'
----| '"build"'
----| '"resolve"'
----| '"sync"'
+
 
 ---Boilerplate around operations (autocmds, counter initialization, etc.)
 ---@param op lit.op
@@ -401,16 +401,6 @@ end
 ---@field status lit.status
 ---@field build string
 
-M.setup = function(config)
-   vim.tbl_deep_extend("force", Config, config)
-   local md_str = io.open(Config.init, "r"):read("*a")
-   Packages = tangle(md_str)
-   for i, pkg in ipairs(Packages) do
-      if pkg.status == Status.INSTALLED then
-         load_config(pkg)
-      end
-   end
-end
 
 ---Installs all packages listed in your configuration. If a package is already
 ---installed, the function ignores it. If a package has a `build` argument,
@@ -438,35 +428,60 @@ function M.sync()
    exe_op("sync", clone_or_pull, vim.tbl_filter(Filter.not_removed, Packages))
 end
 
+function M.edit()
+   vim.cmd("e " .. Config.init)
+end
+
+function M.log()
+   -- TODO: set q for exit
+   vim.cmd("sp " .. Config.log)
+end
+
+function M.list()
+   local status_r = {}
+   for name, i in pairs(Status) do
+      status_r[i] = name
+   end
+
+   for _, pkg in pairs(Packages) do
+      print(pkg.name, status_r[pkg.status])
+   end
+end
+
 M._tangle = tangle
 
+---@alias lit.op
+---| "install"
+---| "update"
+---| "sync"
+---| "remove" -- TODO:
+---| "build" -- TODO:
+---| "resolve" -- TODO:
+---| "edit"
+---| "log"
+---
+local ops = { "install", "update", "sync", "list", "edit", "log" }
+
+-- TODO: support operation on individual plugins
 vim.api.nvim_create_user_command("Lit", function(opt)
    local op = table.remove(opt.fargs, 1)
    if not op then
       return
-   elseif op == "install" then
-      M.install()
-   elseif op == "update" then
-      M.update()
-   elseif op == "sync" then
-      M.sync()
-   elseif op == "list" then
-      local status_r = {}
-
-      for name, i in pairs(Status) do
-         status_r[i] = name
-      end
-
-      for _, pkg in pairs(Packages) do
-         print(pkg.name, status_r[pkg.status])
-      end
-   elseif op == "edit" then
-      vim.cmd("e " .. Config.init)
+          vim.ui.select(ops, {}, function(choice)
+             if M[choice] then
+                M[choice]()
+             end
+          end)
+   end
+   if M[op] then
+      M[op]()
    end
 end, {
    nargs = "*",
-   complete = function(_, _, _)
-      return { "install", "update", "sync", "list", "edit" }
+   complete = function(arg_lead, _, _)
+      return vim.tbl_filter(function(key)
+         return key:find(arg_lead) ~= nil
+      end, ops)
    end,
 })
 
@@ -484,5 +499,35 @@ vim.api.nvim_create_autocmd("BufEnter", {
       vim.cmd "set spell!"
    end
 })
+
+---@return string?
+local read_config = function()
+   local ret
+   local f = uv.fs_open(Config.init, "r", 438)
+   if f then
+      local stat = assert(uv.fs_stat(Config.init))
+      ret = assert(uv.fs_read(f, stat.size, 0))
+      assert(uv.fs_close(f))
+   end
+   return ret
+end
+
+vim.api.nvim_create_autocmd("BufLeave", {
+   pattern = Config.init,
+   callback = function()
+      Packages = tangle(read_config())
+   end
+})
+
+M.setup = function(config)
+   vim.tbl_deep_extend("force", Config, config)
+   Packages = tangle(read_config())
+
+   for _, pkg in ipairs(Packages) do
+      if pkg.status == Status.INSTALLED then
+         load_config(pkg)
+      end
+   end
+end
 
 return M
