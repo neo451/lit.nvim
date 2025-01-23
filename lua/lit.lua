@@ -2,18 +2,16 @@ local M = {}
 
 local uv = vim.uv
 
-
 ---TODO: fetch recent commits
 -- curl -s "https://api.github.com/repos/neo451/feed.nvim/commits?per_page=5" | jq '.[] | {sha: .sha, message: .commit.message}'
 -- git ls-remote --heads --tags https://github.com/neo451/feed.nvim
 
 local Config = {
    init = vim.fn.stdpath "config" .. "/" .. "init.md",
+   --- TODO: just use rtp
    path = vim.fn.stdpath("data") .. "/site/pack/lit/",
    url_format = "https://github.com/%s.git",
    clone_args = { "--depth=1", "--recurse-submodules", "--shallow-submodules", "--no-single-branch" },
-   -- opt = false,
-   -- verbose = false,
    log = vim.fn.stdpath("log") .. "/lit.log",
    lock = vim.fn.stdpath("data") .. "/lit-lock.json",
 }
@@ -37,6 +35,7 @@ local Status = {
    TO_RECLONE = 6,
 }
 
+---@type table<string, fun(p: lit.pkg): boolean>
 local Filter = {
    installed   = function(p) return p.status ~= Status.REMOVED and p.status ~= Status.TO_INSTALL end,
    not_removed = function(p) return p.status ~= Status.REMOVED end,
@@ -111,14 +110,9 @@ local function find_unlisted()
 end
 
 
--- Lockfile
+-- TODO: Lockfile
 local function lock_write()
-   -- remove run key since can have a function in it, and
-   -- json.encode doesn't support functions
    local pkgs = vim.deepcopy(Packages)
-   -- for p, _ in pairs(pkgs) do
-   --   pkgs[p].build = nil
-   -- end
    local file = uv.fs_open(Config.lock, "w", 438)
    if file then
       local ok, result = pcall(vim.json.encode, pkgs)
@@ -512,7 +506,7 @@ local read_config = function()
    return ret
 end
 
-vim.api.nvim_create_autocmd("BufLeave", {
+vim.api.nvim_create_autocmd("BufWritePost", {
    pattern = Config.init,
    callback = function()
       Packages = tangle(read_config())
