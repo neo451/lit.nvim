@@ -1,4 +1,4 @@
-# lit.nvim
+# 🔥 lit.nvim
 
 **(experimental)** Neovim package manager, minimal, literal
 
@@ -6,13 +6,13 @@ pre-alpha software, be careful but have fun.
 
 ## Ways of using
 
-- copy lit.lua into your .config/lua/ directory and require it
+- copy lit.lua into your .config/lua/ directory and require it, but this way lit can not manage itself
 
 - bootstrap in your init.lua
 
 ```lua
 
-local litpath = vim.fn.stdpath("data") .. "/site/pack/lit/lit.nvim"
+local litpath = vim.fn.stdpath("data") .. "/site/pack/lit/start/lit.nvim"
 if not (vim.uv or vim.loop).fs_stat(litpath) then
   local litrepo = "https://github.com/neo451/lit.nvim.git"
   local out = vim.fn.system({ "git", "clone", "--filter=blob:none", litrepo, litpath })
@@ -29,6 +29,13 @@ end
 
 vim.opt.rtp:append(litpath)
 ```
+
+> [!NOTE]
+> you can place init.lua and init.md in a custom directory like `litvim` and just try out with
+>
+> ```bash
+>   NVIM_APPNAME=~/litvim nvim
+> ```
 
 ## Setup
 
@@ -82,9 +89,16 @@ require"oil".setup{}
 - [x] config blocks
 - [x] build blocks
 - [x] clone
-- [ ] correct order or dependencies
-- [ ] update
+- [ ] correct order of dependencies
+- [ ] config syntax
+  - [x] YAML header as vim.o / vim.g
+  - [ ] markdown/html comments
+  - [ ] lazy/opt
+  - [ ] ft
+  - [ ] disable
+- [x] update
 - [ ] sync
+- [ ] native snippets for code blocks like org mode, see NativeVim
 - [ ] global blocks (not really sure the use)
 - [ ] embedded lsp
 - [ ] embedded formatter
@@ -94,4 +108,4 @@ require"oil".setup{}
 ## Thanks to
 
 - [LitLua](https://github.com/jwtly10/litlua)
-- [pad-nvim](https://github.com/savq/paq-nvim)
+- [paq-nvim](https://github.com/savq/paq-nvim)
