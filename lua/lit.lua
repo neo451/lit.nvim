@@ -304,25 +304,26 @@ end
 ---@param build_queue table
 local function pull(pkg, counter, build_queue)
    local prev_hash = Lock[pkg.name] and Lock[pkg.name].hash or pkg.hash
-   vim.system({ "git", "pull", "--recurse-submodules", "--update-shallow" }, { cwd = pkg.dir }, function(obj)
-      if obj.code ~= 0 then
-         vim.notify("update err for " .. pkg.name)
-      end
-      -- else
-      local cur_hash = get_git_hash(pkg.dir)
-      if cur_hash ~= prev_hash then
-         log_update_changes(pkg, prev_hash, cur_hash)
-         pkg.status, pkg.hash = Status.UPDATED, cur_hash
-         lock_write()
-         counter(pkg.name, Messages.update, "ok")
-         vim.notify("update success for " .. pkg.name)
-         if pkg.build then
-            table.insert(build_queue, pkg)
+   vim.system({ "git", "pull", "--recurse-submodules", "--update-shallow" }, { cwd = pkg.dir },
+      vim.schedule_wrap(function(obj)
+         if obj.code ~= 0 then
+            vim.notify("update err for " .. pkg.name)
          end
-      else
-         counter(pkg.name, Messages.update, "nop")
-      end
-   end)
+         -- else
+         local cur_hash = get_git_hash(pkg.dir)
+         if cur_hash ~= prev_hash then
+            log_update_changes(pkg, prev_hash, cur_hash)
+            pkg.status, pkg.hash = Status.UPDATED, cur_hash
+            lock_write()
+            counter(pkg.name, Messages.update, "ok")
+            vim.notify("update success for " .. pkg.name)
+            if pkg.build then
+               table.insert(build_queue, pkg)
+            end
+         else
+            counter(pkg.name, Messages.update, "nop")
+         end
+      end))
 end
 
 ---@param pkg lit.pkg
@@ -443,8 +444,12 @@ vim.api.nvim_create_user_command("Lit", function(opt)
    local op = table.remove(opt.fargs, 1)
    if not op then
       return
-   elseif op == "update" then
+   elseif op == "install" then
       M.install()
+   elseif op == "update" then
+      M.update()
+   elseif op == "sync" then
+      M.sync()
    elseif op == "list" then
       local status_r = {}
 
@@ -459,7 +464,10 @@ vim.api.nvim_create_user_command("Lit", function(opt)
       vim.cmd("e " .. Config.init)
    end
 end, {
-   nargs = "*"
+   nargs = "*",
+   complete = function(_, _, _)
+      return { "install", "update", "sync", "list", "edit" }
+   end,
 })
 
 vim.api.nvim_create_autocmd("BufEnter", {
