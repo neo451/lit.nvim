@@ -2,7 +2,7 @@
 
 **(experimental)** Neovim package manager, minimal, literal
 
-pre-alpha software, be careful but have fun.
+alpha software, be careful but have fun.
 
 ## Ways of using
 
@@ -12,7 +12,7 @@ pre-alpha software, be careful but have fun.
 
 ```lua
 
-local litpath = vim.fn.stdpath("data") .. "/site/pack/lit/start/lit.nvim"
+local litpath = vim.fn.stdpath("data") .. "/lit/lit.nvim"
 if not (vim.uv or vim.loop).fs_stat(litpath) then
   local litrepo = "https://github.com/neo451/lit.nvim.git"
   local out = vim.fn.system({ "git", "clone", "--filter=blob:none", litrepo, litpath })
@@ -83,29 +83,63 @@ require"oil".setup{}
 ```
 ````
 
+4. write options in yaml header
+   - `.number = true` is shorthand for `vim.o.number = true`
+   - `.g` to set global variables
+
+```markdown
+---
+.g.mapleader: " "
+.g.localmapleader: " "
+.laststatus: 3
+.timeoutlen: 500
+.wrap: true
+.number: true
+.relativenumber: true
+.showmode: false
+.signcolumn: "yes:1"
+.smartindent: true
+.splitbelow: true
+.splitright: true
+.splitkeep: "screen"
+.cmdheight: 0
+.autowrite: true
+.completeopt: "menu,menuone,noselect"
+.conceallevel: 0
+.confirm: true
+.cursorline: true
+---
+```
+
 ## Todos
 
 - [x] tangle
 - [x] config blocks
 - [x] build blocks
-- [x] clone
-- [ ] correct order of dependencies
 - [ ] config syntax
   - [x] YAML header as vim.o / vim.g
   - [ ] markdown/html comments
-  - [ ] lazy/opt
+  - [ ] lazy, see rock-lazy.nvim
   - [ ] ft
   - [ ] disable
-- [x] update
-- [ ] sync
-- [ ] native snippets for code blocks like org mode, see NativeVim
-- [ ] global blocks (not really sure the use)
-- [ ] embedded lsp
-- [ ] embedded formatter
-- [ ] embedded completion
-- [ ] update info as diagnostic hover markdown
+- [x] actions
+  - [x] clone
+  - [x] update
+  - [x] sync
+  - [x] list
+  - [x] edit
+  - [ ] build
+- [ ] embedded lua editing
+  - [x] lsp -> otter.nvim
+  - [x] formatter -> conform.nvim
+  - [ ] completion
+- [ ] cool ideas
+  - [ ] global blocks (not really sure the use)
+  - [ ] native snippets for code blocks like org mode, see NativeVim
+  - [ ] update info as diagnostic hover markdown
+  - [ ]
 
 ## Thanks to
 
-- [LitLua](https://github.com/jwtly10/litlua)
-- [paq-nvim](https://github.com/savq/paq-nvim)
+- [paq-nvim](https://github.com/savq/paq-nvim) for all with plugin management logic
+- [LitLua](https://github.com/jwtly10/litlua) for the idea for literate config

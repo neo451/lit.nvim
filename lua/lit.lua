@@ -7,9 +7,8 @@ local uv = vim.uv
 -- git ls-remote --heads --tags https://github.com/neo451/feed.nvim
 
 local Config = {
-   init = vim.fn.stdpath "config" .. "/" .. "init.md",
-   --- TODO: just use rtp
-   path = vim.fn.stdpath("data") .. "/site/pack/lit/",
+   init = vim.fn.stdpath("config") .. "/" .. "init.md",
+   path = vim.fn.stdpath("data") .. "/lit/",
    url_format = "https://github.com/%s.git",
    clone_args = { "--depth=1", "--recurse-submodules", "--shallow-submodules", "--no-single-branch" },
    log = vim.fn.stdpath("log") .. "/lit.log",
@@ -35,16 +34,18 @@ local Status = {
    TO_RECLONE = 6,
 }
 
+-- stylua: ignore start
 ---@type table<string, fun(p: lit.pkg): boolean>
 local Filter = {
-   installed   = function(p) return p.status ~= Status.REMOVED and p.status ~= Status.TO_INSTALL end,
+   installed = function(p) return p.status ~= Status.REMOVED and p.status ~= Status.TO_INSTALL end,
    not_removed = function(p) return p.status ~= Status.REMOVED end,
-   removed     = function(p) return p.status == Status.REMOVED end,
-   to_install  = function(p) return p.status == Status.TO_INSTALL end,
-   to_update   = function(p) return p.status ~= Status.REMOVED and p.status ~= Status.TO_INSTALL and not p.pin end,
-   to_move     = function(p) return p.status == Status.TO_MOVE end,
-   to_reclone  = function(p) return p.status == Status.TO_RECLONE end,
+   removed = function(p) return p.status == Status.REMOVED end,
+   to_install = function(p) return p.status == Status.TO_INSTALL end,
+   to_update = function(p) return p.status ~= Status.REMOVED and p.status ~= Status.TO_INSTALL and not p.pin end,
+   to_move = function(p) return p.status == Status.TO_MOVE end,
+   to_reclone = function(p) return p.status == Status.TO_RECLONE end,
 }
+-- stylua: ignore end
 
 -- Copy environment variables once. Doing it for every process seems overkill.
 local Env = {}
@@ -95,20 +96,17 @@ local function find_unlisted()
    end
 
    local unlisted = {}
-   for _, packdir in pairs { "start", "opt" } do
-      for name, t in vim.fs.dir(Config.path .. packdir) do
-         if t == "directory" and name ~= "lit.nvim" then
-            local dir = Config.path .. packdir .. "/" .. name
-            local pkg = lookup[name]
-            if not pkg or pkg.dir ~= dir then
-               table.insert(unlisted, { name = name, dir = dir })
-            end
+   for name, t in vim.fs.dir(Config.path .. packdir) do
+      if t == "directory" and name ~= "lit.nvim" then
+         local dir = Config.path .. packdir .. "/" .. name
+         local pkg = lookup[name]
+         if not pkg or pkg.dir ~= dir then
+            table.insert(unlisted, { name = name, dir = dir })
          end
       end
    end
    return unlisted
 end
-
 
 -- TODO: Lockfile
 local function lock_write()
@@ -143,7 +141,9 @@ end
 ---@param str string?
 ---@return table<string, lit.pkg>
 local tangle = function(str)
-   if not str then return {} end
+   if not str then
+      return {}
+   end
 
    local lpeg = vim.lpeg
    local P, C, Ct, S = lpeg.P, lpeg.C, lpeg.Ct, lpeg.S
@@ -161,8 +161,7 @@ local tangle = function(str)
       url = (url:match("^https?://") and url:gsub(".git$", "") .. ".git") -- [1] is a URL
           or string.format(Config.url_format, url)                        -- [1] is a repository name
       local name = url:gsub("%.git$", ""):match("/([%w-_.]+)$")
-      -- local dir = Config.path .. (opt and "opt/" or "start/") .. name
-      local dir = Config.path .. (false and "opt/" or "start/") .. name
+      local dir = Config.path .. name
 
       -- TODO: pin, branch, opt
       local ret = {
@@ -184,36 +183,54 @@ local tangle = function(str)
       return ret
    end
 
-   local nl = P "\n"
-   local heading = P("#") * C((1 - nl) ^ 0) / vim.trim
-   local begin_block = P("```")
-   local end_block = P("```")
-   local lang = C(P "lua" + P "vim" + P "bash")
-   local code = C((1 - end_block) ^ 0) / vim.trim
-   local code_block = begin_block * lang * nl * code / parse_code_block * end_block *
-       nl ^ 0
-   local desc = (1 - S '#`') ^ 0
-   local code_blocks = code_block ^ 0
-   local entry = ((heading * desc * code_blocks) / parse_entry) * nl ^ 0
-   local dash = P "---"
-   local header = dash * nl * C((1 - P '-') ^ 0) / function(header_str)
-      local ret = { o = {}, g = {} }
+   local function parse_header(header_str)
+      local ret = { o = {}, g = {}, meta = {} }
       for line in vim.gsplit(header_str, "\n") do
          local k, v = line:match("([^:]+):%s*(.*)")
          if k and v then
-            if k:sub(1, 1) == "g" then
-               k = k:sub(3)
+            if vim.startswith(k, ".g") then
+               k = k:sub(4)
                ret.g[k] = loadstring("return " .. v)()
-            elseif k:sub(1, 1) == "o" then
-               k = k:sub(3)
+            elseif vim.startswith(k, ".o") then
+               k = k:sub(4)
+               ret.o[k] = loadstring("return " .. v)()
+            elseif vim.startswith(k, ".") then
+               k = k:sub(2)
                ret.o[k] = loadstring("return " .. v)()
             else
-               ret.o[k] = loadstring("return " .. v)()
+               if v:find('".+"') then
+                  v = v:sub(2, -2)
+               end
+               local spec = vim.iter(vim.gsplit(v, ","))
+                   :map(function(v)
+                      return vim.trim(v)
+                   end)
+                   :filter(function(v)
+                      return v ~= ""
+                   end)
+                   :fold({}, function(acc, v)
+                      acc[v] = true
+                      return acc
+                   end)
+               ret.meta[k] = spec
             end
          end
       end
       return ret
-   end * nl ^ 0 * dash * nl ^ 1
+   end
+
+   local nl = P("\n")
+   local heading = P("#") * C((1 - nl) ^ 0) / vim.trim
+   local begin_block = P("```")
+   local end_block = P("```")
+   local lang = C(P("lua") + P("vim") + P("bash"))
+   local code = C((1 - end_block) ^ 0) / vim.trim
+   local code_block = begin_block * lang * nl * code / parse_code_block * end_block * nl ^ 0
+   local desc = (1 - S("#`")) ^ 0
+   local code_blocks = code_block ^ 0
+   local entry = ((heading * desc * code_blocks) / parse_entry) * nl ^ 0
+   local dash = P("---")
+   local header = dash * nl * C((1 - P("-")) ^ 0) / parse_header * nl ^ 0 * dash * nl ^ 1
    local grammar = Ct(header ^ -1 * entry ^ 0)
 
    local pkgs = grammar:match(str)
@@ -230,6 +247,14 @@ local tangle = function(str)
       vim.g[k] = v
    end
 
+   for name, v in pairs(options.meta) do
+      for i, pkg in ipairs(pkgs) do
+         if name == pkg.name then
+            pkgs[i] = vim.tbl_extend("keep", pkg, v)
+         end
+      end
+   end
+
    return pkgs
 end
 
@@ -239,20 +264,26 @@ end
 local function log_update_changes(pkg, prev_hash, cur_hash)
    local output = "\n\n" .. pkg.name .. " updated:\n"
 
-   vim.system({ "git", "log", "--pretty=format:* %s", prev_hash .. ".." .. cur_hash }, {
-      cwd = pkg.dir,
-   }, function(obj)
-      assert(obj.code == 0, "Exited(" .. obj.code .. ")")
-      local log = uv.fs_open(Config.log, "a+", 0x1A4)
-      assert(log, "Failed to open log file")
-      uv.fs_write(log, output .. obj.stdout)
-      uv.fs_close(log)
-   end)
+   vim.system(
+      { "git", "log", "--pretty=format:* %s", prev_hash .. ".." .. cur_hash },
+      {
+         cwd = pkg.dir,
+      },
+      vim.schedule_wrap(function(obj)
+         assert(obj.code == 0, "Exited(" .. obj.code .. ")")
+         local log = uv.fs_open(Config.log, "a+", 0x1A4)
+         assert(log, "Failed to open log file")
+         uv.fs_write(log, output .. obj.stdout)
+         uv.fs_close(log)
+      end)
+   )
 end
 
 ---@param pkg lit.pkg
 local function load_config(pkg)
-   if not pkg.config then return end
+   if not pkg.config then
+      return
+   end
    local ok, cb = pcall(load, pkg.config, "lit_" .. pkg.name)
    if ok and cb then
       setfenv(cb, _G)
@@ -265,19 +296,24 @@ local function load_config(pkg)
    end
 end
 
+---@param pkg lit.pkg
 local function build(pkg)
+   vim.notify("running build for" .. pkg.name)
    local cmd = pkg.build
    if cmd:sub(1, 1) == ":" then
       ---@diagnostic disable-next-line: param-type-mismatch
       local ok = pcall(vim.cmd, cmd)
       report(pkg.name, Messages.build, ok and "ok" or "err")
-      -- report(pkg.name, Messages.build, ok and "ok" or "err")
    else
       local cmds = vim.split(cmd, " ")
-      vim.system(cmds, { cwd = pkg.dir, text = true }, function(obj)
-         local ok = obj.code == 0
-         report(pkg.name, Messages.build, ok and "ok" or "err")
-      end)
+      vim.system(
+         cmds,
+         { cwd = pkg.dir, text = true },
+         vim.schedule_wrap(function(obj)
+            local ok = obj.code == 0
+            report(pkg.name, Messages.build, ok and "ok" or "err")
+         end)
+      )
    end
 end
 
@@ -288,16 +324,20 @@ local function clone(pkg, counter, build_queue)
    local args = vim.list_extend({ "git", "clone", pkg.url }, Config.clone_args)
    table.insert(args, pkg.dir)
 
-   vim.system(args, {}, vim.schedule_wrap(function(obj)
-      local ok = obj.code == 0
-      if ok then
-         pkg.status = Status.CLONED
-         if pkg.build then
-            table.insert(build_queue, pkg)
+   vim.system(
+      args,
+      {},
+      vim.schedule_wrap(function(obj)
+         local ok = obj.code == 0
+         if ok then
+            pkg.status = Status.CLONED
+            if pkg.build then
+               table.insert(build_queue, pkg)
+            end
          end
-      end
-      counter(pkg.name, Messages.install, ok and "ok" or "err")
-   end))
+         counter(pkg.name, Messages.install, ok and "ok" or "err")
+      end)
+   )
 end
 
 ---@param pkg lit.pkg
@@ -305,7 +345,9 @@ end
 ---@param build_queue table
 local function pull(pkg, counter, build_queue)
    local prev_hash = Lock[pkg.name] and Lock[pkg.name].hash or pkg.hash
-   vim.system({ "git", "pull", "--recurse-submodules", "--update-shallow" }, { cwd = pkg.dir },
+   vim.system(
+      { "git", "pull", "--recurse-submodules", "--update-shallow" },
+      { cwd = pkg.dir },
       vim.schedule_wrap(function(obj)
          if obj.code ~= 0 then
             counter(pkg.name, Messages.update, "err")
@@ -323,7 +365,8 @@ local function pull(pkg, counter, build_queue)
          else
             counter(pkg.name, Messages.update, "nop")
          end
-      end))
+      end)
+   )
 end
 
 ---@param pkg lit.pkg
@@ -348,8 +391,6 @@ local function remove(pkg, counter)
    end
 end
 
-
-
 ---Boilerplate around operations (autocmds, counter initialization, etc.)
 ---@param op lit.op
 ---@param fn function
@@ -358,7 +399,7 @@ end
 local function exe_op(op, fn, pkgs, silent)
    if #pkgs == 0 then
       if not silent then
-         vim.notify(" Paq: Nothing to " .. op)
+         vim.notify(" Lit: Nothing to " .. op)
       end
       vim.cmd("doautocmd User PaqDone" .. op:gsub("^%l", string.upper))
       return
@@ -394,7 +435,6 @@ end
 ---@field config string
 ---@field status lit.status
 ---@field build string
-
 
 ---Installs all packages listed in your configuration. If a package is already
 ---installed, the function ignores it. If a package has a `build` argument,
@@ -460,12 +500,11 @@ local ops = { "install", "update", "sync", "list", "edit", "log" }
 vim.api.nvim_create_user_command("Lit", function(opt)
    local op = table.remove(opt.fargs, 1)
    if not op then
-      return
-          vim.ui.select(ops, {}, function(choice)
-             if M[choice] then
-                M[choice]()
-             end
-          end)
+      return vim.ui.select(ops, {}, function(choice)
+         if M[choice] then
+            M[choice]()
+         end
+      end)
    end
    if M[op] then
       M[op]()
@@ -484,14 +523,10 @@ vim.api.nvim_create_autocmd("BufEnter", {
    callback = function()
       local ok, otter = pcall(require, "otter")
       if ok then
-         otter.activate({ "lua" })
+         pcall(otter.activate, { "lua" })
       end
-      local conform_ok, conform = pcall(require, "conform")
-      -- if conform_ok then
-      --    conform.format({ bufnr = vim.api.nvim_get_current_buf(), formatters = { "markdown", "injected" } })
-      -- end
-      vim.cmd "set spell!"
-   end
+      vim.wo.spell = false
+   end,
 })
 
 ---@return string?
@@ -510,7 +545,11 @@ vim.api.nvim_create_autocmd("BufWritePost", {
    pattern = Config.init,
    callback = function()
       Packages = tangle(read_config())
-   end
+      local conform_ok, conform = pcall(require, "conform")
+      if conform_ok then
+         conform.format({ bufnr = vim.api.nvim_get_current_buf(), formatters = { "injected" } })
+      end
+   end,
 })
 
 M.setup = function(config)
@@ -518,6 +557,7 @@ M.setup = function(config)
    Packages = tangle(read_config())
 
    for _, pkg in ipairs(Packages) do
+      vim.opt.rtp:append(pkg.dir)
       if pkg.status == Status.INSTALLED then
          load_config(pkg)
       end
