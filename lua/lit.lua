@@ -2,17 +2,28 @@ local M = {}
 
 local uv = vim.uv
 
+---@class lit.pkg
+---@field branch string #TODO:
+---@field pin boolean #TODO:
+---@field hash string
+---@field name string
+---@field url string
+---@field dir string
+---@field config string
+---@field status lit.status
+---@field build string
+
 ---TODO: fetch recent commits
 -- curl -s "https://api.github.com/repos/neo451/feed.nvim/commits?per_page=5" | jq '.[] | {sha: .sha, message: .commit.message}'
 -- git ls-remote --heads --tags https://github.com/neo451/feed.nvim
 
 local Config = {
    init = vim.fn.stdpath("config") .. "/" .. "init.md",
-   path = vim.fn.stdpath("data") .. "/lit/",
+   lock = vim.fn.stdpath("config") .. "/lit-lock.json",
+   path = vim.fn.stdpath("data") .. "/site/pack/lit/opt/",
    url_format = "https://github.com/%s.git",
    clone_args = { "--depth=1", "--recurse-submodules", "--shallow-submodules", "--no-single-branch" },
    log = vim.fn.stdpath("log") .. "/lit.log",
-   lock = vim.fn.stdpath("data") .. "/lit-lock.json",
 }
 
 ---@enum lit.message
@@ -54,7 +65,7 @@ for var, val in pairs(uv.os_environ()) do
 end
 table.insert(Env, "GIT_TERMINAL_PROMPT=0")
 
-local Lock = {}     -- Table of pgks loaded from the lockfile
+local Lock = {} -- Table of pgks loaded from the lockfile
 local Packages = {} -- Table of pkgs loaded from the init.md
 
 ---@param name string
@@ -88,7 +99,7 @@ local function new_counter(total, callback)
    end)
 end
 
----@return Package
+---@return lit.pkg
 local function find_unlisted()
    local lookup = {}
    for _, pkg in ipairs(Packages) do
@@ -96,9 +107,9 @@ local function find_unlisted()
    end
 
    local unlisted = {}
-   for name, t in vim.fs.dir(Config.path .. packdir) do
+   for name, t in vim.fs.dir(Config.path) do
       if t == "directory" and name ~= "lit.nvim" then
-         local dir = Config.path .. packdir .. "/" .. name
+         local dir = Config.path .. name
          local pkg = lookup[name]
          if not pkg or pkg.dir ~= dir then
             table.insert(unlisted, { name = name, dir = dir })
@@ -110,7 +121,16 @@ end
 
 -- TODO: Lockfile
 local function lock_write()
-   local pkgs = vim.deepcopy(Packages)
+   local pkgs = {}
+
+   for i, pkg in ipairs(Packages) do
+      pkgs[pkg.name] = {
+         dir = pkg.dir,
+         url = pkg.url,
+         branch = pkg.branch,
+         status = pkg.status
+      }
+   end
    local file = uv.fs_open(Config.lock, "w", 438)
    if file then
       local ok, result = pcall(vim.json.encode, pkgs)
@@ -121,6 +141,46 @@ local function lock_write()
       assert(uv.fs_close(file))
    end
    Lock = Packages
+end
+
+local function lock_load()
+   local file = uv.fs_open(Config.lock, "r", 438)
+   if file then
+      local stat = assert(uv.fs_fstat(file))
+      local data = assert(uv.fs_read(file, stat.size, 0))
+      assert(uv.fs_close(file))
+      local ok, result = pcall(vim.json.decode, data)
+      if ok then
+         Lock = not vim.tbl_isempty(result) and result or Packages
+         -- Repopulate 'build' key so 'vim.deep_equal' works
+         for name, pkg in pairs(result) do
+            pkg.build = Packages[name] and Packages[name].build or nil
+         end
+      end
+   else
+      lock_write()
+      Lock = Packages
+   end
+end
+
+local function diff_gather()
+   local diffs = {}
+   for name, lock_pkg in pairs(Lock) do
+      local pack_pkg = Packages[name]
+      if pack_pkg and Filter.not_removed(lock_pkg) and not vim.deep_equal(lock_pkg, pack_pkg) then
+         for k, v in pairs({
+            dir = Status.TO_MOVE,
+            branch = Status.TO_RECLONE,
+            url = Status.TO_RECLONE,
+         }) do
+            if lock_pkg[k] ~= pack_pkg[k] then
+               lock_pkg.status = v
+               table.insert(diffs, lock_pkg)
+            end
+         end
+      end
+   end
+   return diffs
 end
 
 ---@param dir Path
@@ -136,6 +196,46 @@ local function get_git_hash(dir)
    end
    local head_ref = first_line(dir .. "/.git/HEAD")
    return head_ref and first_line(dir .. "/.git/" .. head_ref:gsub("ref: ", ""))
+end
+
+-- TODO: pin, branch, opt
+---@param url string
+---@return table
+local function url2pkg(url)
+   url = (url:match("^https?://") and url:gsub(".git$", "") .. ".git") -- [1] is a URL
+      or string.format(Config.url_format, url) -- [1] is a repository name
+   local name = url:gsub("%.git$", ""):match("/([%w-_.]+)$")
+   local dir = Config.path .. name
+
+   return {
+      name = name,
+      url = url,
+      dir = dir,
+      hash = get_git_hash(dir),
+      status = uv.fs_stat(dir) and Status.INSTALLED or Status.TO_INSTALL,
+   }
+end
+
+local function get_attrs(str)
+   local attrs = {}
+   for line in vim.gsplit(str, "\n") do
+      if line:match("^-") then
+         local k, v = line:match("^- (%w+): (.+)")
+         v = vim.trim(v)
+         if v:find(" ") then
+            v = vim.split(v, " ")
+         end
+         if v == "true" then
+            v = true
+         end
+         if v == "false" then
+            v = false
+         end
+         attrs[k] = v
+      end
+      -- return str:match("")
+   end
+   return attrs
 end
 
 ---@param str string?
@@ -154,23 +254,9 @@ local tangle = function(str)
       return { type = type, code = code }
    end
 
-   local function parse_entry(...)
+   local function parse_entry(url, attrs, ...)
+      local ret = url2pkg(url)
       local chunks = { ... }
-      local url = table.remove(chunks, 1)
-
-      url = (url:match("^https?://") and url:gsub(".git$", "") .. ".git") -- [1] is a URL
-          or string.format(Config.url_format, url)                        -- [1] is a repository name
-      local name = url:gsub("%.git$", ""):match("/([%w-_.]+)$")
-      local dir = Config.path .. name
-
-      -- TODO: pin, branch, opt
-      local ret = {
-         name = name,
-         url = url,
-         dir = dir,
-         hash = get_git_hash(dir),
-         status = uv.fs_stat(dir) and Status.INSTALLED or Status.TO_INSTALL,
-      }
 
       for _, chunk in ipairs(chunks) do
          if chunk.type == "lua" then
@@ -180,7 +266,7 @@ local tangle = function(str)
          end
       end
 
-      return ret
+      return vim.tbl_extend("keep", ret, attrs)
    end
 
    local function parse_header(header_str)
@@ -202,16 +288,16 @@ local tangle = function(str)
                   v = v:sub(2, -2)
                end
                local spec = vim.iter(vim.gsplit(v, ","))
-                   :map(function(v)
-                      return vim.trim(v)
-                   end)
-                   :filter(function(v)
-                      return v ~= ""
-                   end)
-                   :fold({}, function(acc, v)
-                      acc[v] = true
-                      return acc
-                   end)
+                  :map(function(v)
+                     return vim.trim(v)
+                  end)
+                  :filter(function(v)
+                     return v ~= ""
+                  end)
+                  :fold({}, function(acc, v)
+                     acc[v] = true
+                     return acc
+                  end)
                ret.meta[k] = spec
             end
          end
@@ -226,7 +312,7 @@ local tangle = function(str)
    local lang = C(P("lua") + P("vim") + P("bash"))
    local code = C((1 - end_block) ^ 0) / vim.trim
    local code_block = begin_block * lang * nl * code / parse_code_block * end_block * nl ^ 0
-   local desc = (1 - S("#`")) ^ 0
+   local desc = C((1 - S("#`")) ^ 0) / get_attrs
    local code_blocks = code_block ^ 0
    local entry = ((heading * desc * code_blocks) / parse_entry) * nl ^ 0
    local dash = P("---")
@@ -246,6 +332,11 @@ local tangle = function(str)
    for k, v in pairs(options.g) do
       vim.g[k] = v
    end
+
+   vim.list_extend(pkgs, {
+      url2pkg("nvim-neorocks/lz.n"),
+      url2pkg("horriblename/lzn-auto-require"),
+   })
 
    for name, v in pairs(options.meta) do
       for i, pkg in ipairs(pkgs) do
@@ -281,24 +372,40 @@ end
 
 ---@param pkg lit.pkg
 local function load_config(pkg)
-   if not pkg.config then
-      return
-   end
-   local ok, cb = pcall(load, pkg.config, "lit_" .. pkg.name)
-   if ok and cb then
-      setfenv(cb, _G)
-      local cb_ok, err = pcall(cb)
-      if not cb_ok then
-         vim.notify("config err for " .. pkg.name .. ": " .. err, 2)
-      end
+   local has_lzn, lzn = pcall(require, "lz.n")
+   if has_lzn then
+      local name = pkg.name
+      local spec = {
+         name,
+         cmd = pkg.cmd,
+         lazy = pkg.lazy,
+         ft = pkg.ft,
+         keys = pkg.keys,
+         after = function()
+            if not pkg.config then
+               return
+            end
+            local ok, cb = pcall(load, pkg.config, "lit_" .. pkg.name)
+            if ok and cb then
+               setfenv(cb, _G)
+               local cb_ok, err = pcall(cb)
+               if not cb_ok then
+                  vim.notify("config err for " .. pkg.name .. ": " .. err, 2)
+               end
+            else
+               vim.notify("invalid config err for " .. pkg.name, 2)
+            end
+         end,
+      }
+      lzn.load(spec)
    else
-      vim.notify("invalid config err for " .. pkg.name, 2)
+      vim.opt.rtp:append(pkg.dir)
    end
 end
 
 ---@param pkg lit.pkg
 local function build(pkg)
-   vim.notify("running build for" .. pkg.name)
+   vim.notify(" Lit: running build for " .. pkg.name)
    local cmd = pkg.build
    if cmd:sub(1, 1) == ":" then
       ---@diagnostic disable-next-line: param-type-mismatch
@@ -331,9 +438,12 @@ local function clone(pkg, counter, build_queue)
          local ok = obj.code == 0
          if ok then
             pkg.status = Status.CLONED
+            lock_write()
             if pkg.build then
                table.insert(build_queue, pkg)
             end
+         else
+            uv.fs_rmdir(pkg.dir)
          end
          counter(pkg.name, Messages.install, ok and "ok" or "err")
       end)
@@ -425,17 +535,6 @@ local function exe_op(op, fn, pkgs, silent)
    end
 end
 
----@class lit.pkg
----@field branch string #TODO:
----@field pin boolean #TODO:
----@field hash string
----@field name string
----@field url string
----@field dir string
----@field config string
----@field status lit.status
----@field build string
-
 ---Installs all packages listed in your configuration. If a package is already
 ---installed, the function ignores it. If a package has a `build` argument,
 ---it'll be executed after the package is installed.
@@ -472,16 +571,37 @@ function M.log()
 end
 
 function M.list()
-   local status_r = {}
-   for name, i in pairs(Status) do
-      status_r[i] = name
+   local installed = vim.tbl_filter(Filter.installed, Packages)
+   local removed = vim.tbl_filter(Filter.removed, Packages)
+   local function sort_by_name(t)
+      table.sort(t, function(a, b)
+         return a.name < b.name
+      end)
    end
-
-   for _, pkg in pairs(Packages) do
-      print(pkg.name, status_r[pkg.status])
+   sort_by_name(installed)
+   sort_by_name(removed)
+   local markers = { "+", "*" }
+   for header, pkgs in pairs({ ["Installed packages:"] = installed, ["Recently removed:"] = removed }) do
+      if #pkgs ~= 0 then
+         print(header)
+         for _, pkg in ipairs(pkgs) do
+            print(" ", markers[pkg.status] or " ", pkg.name)
+         end
+      end
    end
 end
 
+-- function M.list()
+--    local status_r = {}
+--    for name, i in pairs(Status) do
+--       status_r[i] = name
+--    end
+--
+--    for _, pkg in pairs(Packages) do
+--       print(pkg.name, status_r[pkg.status])
+--    end
+-- end
+--
 M._tangle = tangle
 
 ---@alias lit.op
@@ -555,13 +675,13 @@ vim.api.nvim_create_autocmd("BufWritePost", {
 M.setup = function(config)
    vim.tbl_deep_extend("force", Config, config)
    Packages = tangle(read_config())
-
-   for _, pkg in ipairs(Packages) do
-      vim.opt.rtp:append(pkg.dir)
-      if pkg.status == Status.INSTALLED then
-         load_config(pkg)
-      end
-   end
+   lock_load()
+   -- exe_op("resolve", reo)
+   --- TOOD: Install on startup
+   pcall(vim.cmd.packadd, "lz.n")
+   pcall(vim.cmd.packadd, "lzn-auto-require")
+   exe_op("load", load_config, vim.tbl_filter(Filter.installed, Packages), true)
+   -- require("lzn-auto-require").enable()
 end
 
 return M
