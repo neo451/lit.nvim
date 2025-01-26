@@ -121,7 +121,6 @@ end
 
 ---@param dir
 local function rmdir(dir)
-   dir = type(dir) == "table" and tostring(dir) or dir
    for name, t in vim.fs.dir(dir) do
       name = dir .. "/" .. name
       local ok = (t == "directory") and uv.fs_rmdir(name) or uv.fs_unlink(name)
@@ -353,6 +352,13 @@ local tangle = function(str)
    return pkgs
 end
 
+local function log_err(err)
+   local log = uv.fs_open(Config.log, "a+", 0x1A4)
+   assert(log, "Failed to open log file")
+   uv.fs_write(log, err)
+   uv.fs_close(log)
+end
+
 ---@param pkg lit.pkg
 ---@param prev_hash string
 ---@param cur_hash string
@@ -452,6 +458,7 @@ local function clone(pkg, counter, build_queue)
                table.insert(build_queue, pkg)
             end
          else
+            log_err(obj.stderr)
             rmdir(pkg.dir)
          end
          counter(pkg.name, Messages.install, ok and "ok" or "err")
@@ -470,8 +477,9 @@ local function pull(pkg, counter, build_queue)
       vim.schedule_wrap(function(obj)
          if obj.code ~= 0 then
             counter(pkg.name, Messages.update, "err")
+            log_err(obj.stderr)
+            return
          end
-         -- else
          local cur_hash = get_git_hash(pkg.dir)
          if cur_hash ~= prev_hash then
             log_update_changes(pkg, prev_hash, cur_hash)
@@ -502,10 +510,12 @@ end
 ---@param pkg Package
 ---@param counter function
 local function remove(pkg, counter)
-   local ok = rmdir(pkg.dir)
-   counter(pkg.name, Messages.remove, ok and "ok" or "err")
+   local ok, err = pcall(rmdir, pkg.dir)
    if ok then
+      counter(pkg.name, Messages.remove, "ok")
       Packages[pkg.name] = { name = pkg.name, status = Status.REMOVED }
+   else
+      log_err(err)
       -- lock_write()
    end
 end
