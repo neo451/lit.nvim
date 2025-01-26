@@ -119,6 +119,19 @@ local function find_unlisted()
    return unlisted
 end
 
+---@param dir
+local function rmdir(dir)
+   dir = type(dir) == "table" and tostring(dir) or dir
+   for name, t in vim.fs.dir(dir) do
+      name = dir .. "/" .. name
+      local ok = (t == "directory") and uv.fs_rmdir(name) or uv.fs_unlink(name)
+      if not ok then
+         return ok
+      end
+   end
+   return uv.fs_rmdir(dir)
+end
+
 -- TODO: Lockfile
 local function lock_write()
    local pkgs = {}
@@ -327,6 +340,7 @@ local tangle = function(str)
    end
 
    vim.list_extend(pkgs, {
+      -- url2pkg("neo451/lit.nvim"),
       url2pkg("nvim-neorocks/lz.n"),
       url2pkg("horriblename/lzn-auto-require"),
    })
@@ -365,6 +379,9 @@ end
 
 ---@param pkg lit.pkg
 local function load_config(pkg)
+   if pkg.name == "lit.nvim" then
+      return
+   end
    local has_lzn, lzn = pcall(require, "lz.n")
    if has_lzn then
       local name = pkg.name
@@ -438,7 +455,7 @@ local function clone(pkg, counter, build_queue)
                table.insert(build_queue, pkg)
             end
          else
-            uv.fs_rmdir(pkg.dir)
+            rmdir(pkg.dir)
          end
          counter(pkg.name, Messages.install, ok and "ok" or "err")
       end)
@@ -488,7 +505,7 @@ end
 ---@param pkg Package
 ---@param counter function
 local function remove(pkg, counter)
-   local ok = uv.fs_rmdir(pkg.dir) -- TODO: is rmdir in pad needed????
+   local ok = rmdir(pkg.dir)
    counter(pkg.name, Messages.remove, ok and "ok" or "err")
    if ok then
       Packages[pkg.name] = { name = pkg.name, status = Status.REMOVED }
