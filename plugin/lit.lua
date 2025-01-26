@@ -334,17 +334,19 @@ local tangle = function(str)
    local grammar = Ct(header ^ -1 * entry ^ 0)
 
    local pkgs = grammar:match(str)
-   local options = {}
+   local options
    if not pkgs[1].name then
       options = table.remove(pkgs, 1)
    end
 
-   for k, v in pairs(options.o) do
-      vim.o[k] = v
-   end
+   if options then
+      for k, v in pairs(options.o) do
+         vim.o[k] = v
+      end
 
-   for k, v in pairs(options.g) do
-      vim.g[k] = v
+      for k, v in pairs(options.g) do
+         vim.g[k] = v
+      end
    end
 
    vim.list_extend(pkgs, default_deps)
