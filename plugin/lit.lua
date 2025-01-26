@@ -350,15 +350,6 @@ local tangle = function(str)
    end
 
    vim.list_extend(pkgs, default_deps)
-
-   for name, v in pairs(options.meta) do
-      for i, pkg in ipairs(pkgs) do
-         if name == pkg.name then
-            pkgs[i] = vim.tbl_extend("keep", pkg, v)
-         end
-      end
-   end
-
    return pkgs
 end
 
