@@ -21,9 +21,9 @@ local Config = {
    init = vim.fn.stdpath("config") .. "/" .. "init.md",
    lock = vim.fn.stdpath("config") .. "/lit-lock.json",
    path = vim.fn.stdpath("data") .. "/site/pack/lit/opt/",
+   log = vim.fn.stdpath("log") .. "/lit.log",
    url_format = "https://github.com/%s.git",
    clone_args = { "--depth=1", "--recurse-submodules", "--shallow-submodules", "--no-single-branch" },
-   log = vim.fn.stdpath("log") .. "/lit.log",
 }
 
 ---@enum lit.message
@@ -128,7 +128,7 @@ local function lock_write()
          dir = pkg.dir,
          url = pkg.url,
          branch = pkg.branch,
-         status = pkg.status
+         status = pkg.status,
       }
    end
    local file = uv.fs_open(Config.lock, "w", 438)
@@ -233,7 +233,6 @@ local function get_attrs(str)
          end
          attrs[k] = v
       end
-      -- return str:match("")
    end
    return attrs
 end
@@ -511,20 +510,20 @@ local function exe_op(op, fn, pkgs, silent)
       if not silent then
          vim.notify(" Lit: Nothing to " .. op)
       end
-      vim.cmd("doautocmd User PaqDone" .. op:gsub("^%l", string.upper))
+      vim.cmd("doautocmd User LitDone" .. op:gsub("^%l", string.upper))
       return
    end
 
    local build_queue = {}
 
    local function after(ok, err, nop)
-      local summary = " Paq: %s complete. %d ok; %d errors;" .. (nop > 0 and " %d no-ops" or "")
+      local summary = " Lit: %s complete. %d ok; %d errors;" .. (nop > 0 and " %d no-ops" or "")
       vim.notify(string.format(summary, op, ok, err, nop))
       vim.cmd("packloadall! | silent! helptags ALL")
       if #build_queue ~= 0 then
          exe_op("build", build, build_queue)
       end
-      vim.cmd("doautocmd User PaqDone" .. op:gsub("^%l", string.upper))
+      vim.cmd("doautocmd User LitDone" .. op:gsub("^%l", string.upper))
    end
 
    local counter = new_counter(#pkgs, after)
@@ -570,6 +569,7 @@ function M.log()
    vim.cmd("sp " .. Config.log)
 end
 
+--- FIXME:
 function M.list()
    local installed = vim.tbl_filter(Filter.installed, Packages)
    local removed = vim.tbl_filter(Filter.removed, Packages)
@@ -591,17 +591,6 @@ function M.list()
    end
 end
 
--- function M.list()
---    local status_r = {}
---    for name, i in pairs(Status) do
---       status_r[i] = name
---    end
---
---    for _, pkg in pairs(Packages) do
---       print(pkg.name, status_r[pkg.status])
---    end
--- end
---
 M._tangle = tangle
 
 ---@alias lit.op
@@ -621,9 +610,11 @@ vim.api.nvim_create_user_command("Lit", function(opt)
    local op = table.remove(opt.fargs, 1)
    if not op then
       return vim.ui.select(ops, {}, function(choice)
-         if M[choice] then
-            M[choice]()
-         end
+         vim.schedule(function()
+            if M[choice] then
+               M[choice]()
+            end
+         end)
       end)
    end
    if M[op] then
