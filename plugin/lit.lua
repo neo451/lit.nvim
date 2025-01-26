@@ -258,6 +258,12 @@ local function parse_spec(str)
    return attrs
 end
 
+local default_deps = {
+   url2pkg("neo451/lit.nvim"),
+   url2pkg("nvim-neorocks/lz.n"),
+   url2pkg("horriblename/lzn-auto-require"),
+}
+
 ---@param str string?
 ---@return table<string, lit.pkg>
 local tangle = function(str)
@@ -339,11 +345,7 @@ local tangle = function(str)
       vim.g[k] = v
    end
 
-   vim.list_extend(pkgs, {
-      -- url2pkg("neo451/lit.nvim"),
-      url2pkg("nvim-neorocks/lz.n"),
-      url2pkg("horriblename/lzn-auto-require"),
-   })
+   vim.list_extend(pkgs, default_deps)
 
    for name, v in pairs(options.meta) do
       for i, pkg in ipairs(pkgs) do
@@ -450,7 +452,7 @@ local function clone(pkg, counter, build_queue)
          local ok = obj.code == 0
          if ok then
             pkg.status = Status.CLONED
-            lock_write()
+            -- lock_write()
             if pkg.build then
                table.insert(build_queue, pkg)
             end
@@ -479,7 +481,7 @@ local function pull(pkg, counter, build_queue)
          if cur_hash ~= prev_hash then
             log_update_changes(pkg, prev_hash, cur_hash)
             pkg.status, pkg.hash = Status.UPDATED, cur_hash
-            lock_write()
+            -- lock_write()
             counter(pkg.name, Messages.update, "ok")
             if pkg.build then
                table.insert(build_queue, pkg)
@@ -509,7 +511,7 @@ local function remove(pkg, counter)
    counter(pkg.name, Messages.remove, ok and "ok" or "err")
    if ok then
       Packages[pkg.name] = { name = pkg.name, status = Status.REMOVED }
-      lock_write()
+      -- lock_write()
    end
 end
 
@@ -613,7 +615,8 @@ end
 ---| "resolve" -- TODO:
 ---| "edit"
 ---| "log"
----
+---| "load"
+
 local ops = { "install", "update", "sync", "list", "edit", "log" }
 
 -- TODO: support operation on individual plugins
@@ -680,9 +683,11 @@ end
 
 vim.tbl_deep_extend("force", Config, vim.g.lit or {})
 Packages = tangle(read_config())
-lock_load()
+-- lock_load()
 -- exe_op("resolve", reo)
---- TOOD: Install on startup
+
+exe_op("install", clone, vim.tbl_filter(Filter.to_install, default_deps), true)
+
 pcall(vim.cmd.packadd, "lz.n")
 -- pcall(vim.cmd.packadd, "lzn-auto-require")
 exe_op("load", load_config, vim.tbl_filter(Filter.installed, Packages), true)
