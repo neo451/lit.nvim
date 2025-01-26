@@ -261,6 +261,8 @@ end
 local default_deps = {
    url2pkg("neo451/lit.nvim"),
    url2pkg("nvim-neorocks/lz.n"),
+   url2pkg("stevearc/conform.nvim"),
+   url2pkg("jmbuhr/otter.nvim"),
    url2pkg("horriblename/lzn-auto-require"),
 }
 
@@ -268,7 +270,7 @@ local default_deps = {
 ---@return table<string, lit.pkg>
 local tangle = function(str)
    if not str then
-      return {}
+      return default_deps
    end
 
    local lpeg = vim.lpeg
