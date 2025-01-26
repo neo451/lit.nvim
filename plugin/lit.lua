@@ -216,7 +216,14 @@ local function url2pkg(url)
    }
 end
 
-local function get_attrs(str)
+local remove_quotes = function(str)
+   if type(str) ~= "string" then
+      return str
+   end
+   return str:find('".+"') and str:sub(2, -2) or str
+end
+
+local function parse_spec(str)
    local attrs = {}
    for line in vim.gsplit(str, "\n") do
       if line:match("^-") then
@@ -224,11 +231,12 @@ local function get_attrs(str)
          v = vim.trim(v)
          if v:find(" ") then
             v = vim.split(v, " ")
+            v = vim.tbl_map(remove_quotes, v)
          end
+         v = remove_quotes(v)
          if v == "true" then
             v = true
-         end
-         if v == "false" then
+         elseif v == "false" then
             v = false
          end
          attrs[k] = v
@@ -283,21 +291,7 @@ local tangle = function(str)
                k = k:sub(2)
                ret.o[k] = loadstring("return " .. v)()
             else
-               if v:find('".+"') then
-                  v = v:sub(2, -2)
-               end
-               local spec = vim.iter(vim.gsplit(v, ","))
-                  :map(function(v)
-                     return vim.trim(v)
-                  end)
-                  :filter(function(v)
-                     return v ~= ""
-                  end)
-                  :fold({}, function(acc, v)
-                     acc[v] = true
-                     return acc
-                  end)
-               ret.meta[k] = spec
+               ret.meta[k] = v
             end
          end
       end
@@ -311,7 +305,7 @@ local tangle = function(str)
    local lang = C(P("lua") + P("vim") + P("bash"))
    local code = C((1 - end_block) ^ 0) / vim.trim
    local code_block = begin_block * lang * nl * code / parse_code_block * end_block * nl ^ 0
-   local desc = C((1 - S("#`")) ^ 0) / get_attrs
+   local desc = C((1 - S("#`")) ^ 0) / parse_spec
    local code_blocks = code_block ^ 0
    local entry = ((heading * desc * code_blocks) / parse_entry) * nl ^ 0
    local dash = P("---")
@@ -380,6 +374,8 @@ local function load_config(pkg)
          lazy = pkg.lazy,
          ft = pkg.ft,
          keys = pkg.keys,
+         enabled = pkg.enabled,
+         event = pkg.event,
          after = function()
             if not pkg.config then
                return
@@ -591,8 +587,6 @@ function M.list()
    end
 end
 
-M._tangle = tangle
-
 ---@alias lit.op
 ---| "install"
 ---| "update"
@@ -663,16 +657,23 @@ vim.api.nvim_create_autocmd("BufWritePost", {
    end,
 })
 
-M.setup = function(config)
-   vim.tbl_deep_extend("force", Config, config)
-   Packages = tangle(read_config())
-   lock_load()
-   -- exe_op("resolve", reo)
-   --- TOOD: Install on startup
-   pcall(vim.cmd.packadd, "lz.n")
-   pcall(vim.cmd.packadd, "lzn-auto-require")
-   exe_op("load", load_config, vim.tbl_filter(Filter.installed, Packages), true)
-   -- require("lzn-auto-require").enable()
+if vim.g.lit_loaded then
+   return
 end
+
+vim.tbl_deep_extend("force", Config, vim.g.lit or {})
+Packages = tangle(read_config())
+lock_load()
+-- exe_op("resolve", reo)
+--- TOOD: Install on startup
+pcall(vim.cmd.packadd, "lz.n")
+-- pcall(vim.cmd.packadd, "lzn-auto-require")
+exe_op("load", load_config, vim.tbl_filter(Filter.installed, Packages), true)
+-- require("lzn-auto-require").enable()
+
+vim.g.lit_loaded = true
+
+M._tangle = tangle
+M._parse_spec = parse_spec
 
 return M

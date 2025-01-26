@@ -31,33 +31,35 @@ vim.opt.rtp:append(litpath)
 ```
 
 > [!NOTE]
-> you can place init.lua and init.md in a custom directory like `litvim` and just try out with
+> You can place `init.lua` and `init.md` in a separate directory like `.config/litvim` and just try out with:
 >
 > ```bash
->   NVIM_APPNAME=~/litvim nvim
+>   NVIM_APPNAME=litvim nvim
 > ```
 
-## Setup
+## Config
+
+No need for a setup function
 
 ```lua
-require"lit".setup{
--- not much here yet lol, maybe no need for this later
+vim.g.lit = {
+    -- not much here yet
 }
 ```
 
 ## Magic
 
-write your config in markdown in init.md:
+Write your config in markdown in `.config/nvim/init.md`:
 
-1. repo url as heading, if something is a dependency/library, just put it before and it loads first, but not yet ensured if you are installing it the first time :(
+1. autho/repo or url as heading, if something is a dependency/library, just put it before the thing that depends on it
 
 ```markdown
 # nvim-lua/plenary.nvim
 
-# gregorias/coop.nvim
+# nvim-telescope/telescope.nvim
 ```
 
-2. build setup as `vim` or `bash` code blocks
+2. build steps as `vim` or `bash` code blocks
 
 ````markdown
 # nvim-treesitter/nvim-treesitter
@@ -83,31 +85,36 @@ require"oil".setup{}
 ```
 ````
 
-4. write options in yaml header
-   - `.number = true` is shorthand for `vim.o.number = true`
-   - `.g` to set global variables
+4. plugin spec after the heading
+
+For supported fields, see documentation for [lz.n](https://github.com/nvim-neorocks/lz.n?tab=readme-ov-file#plugin-spec)
+
+```markdown
+# saghen/blink.cm
+
+- event: InsertEnter
+
+# nvim-neorg/neorg
+
+- ft: norg
+
+# NeogitOrg/neogit
+
+- cmd: Neogit
+```
+
+5. write options in yaml header
+
+- `.number = true` is shorthand for `vim.o.number = true`
+- `.g` to set global variables
 
 ```markdown
 ---
 .g.mapleader: " "
 .g.localmapleader: " "
 .laststatus: 3
-.timeoutlen: 500
 .wrap: true
-.number: true
-.relativenumber: true
-.showmode: false
 .signcolumn: "yes:1"
-.smartindent: true
-.splitbelow: true
-.splitright: true
-.splitkeep: "screen"
-.cmdheight: 0
-.autowrite: true
-.completeopt: "menu,menuone,noselect"
-.conceallevel: 0
-.confirm: true
-.cursorline: true
 ---
 ```
 
@@ -118,10 +125,8 @@ require"oil".setup{}
 - [x] build blocks
 - [ ] config syntax
   - [x] YAML header as vim.o / vim.g
-  - [ ] markdown/html comments
-  - [ ] lazy, see rock-lazy.nvim
-  - [ ] ft
-  - [ ] disable
+  - [x] lazy loading with lz.n
+  - [ ] support markdown/html comments
 - [x] actions
   - [x] clone
   - [x] update
@@ -133,13 +138,13 @@ require"oil".setup{}
   - [x] lsp -> otter.nvim
   - [x] formatter -> conform.nvim
   - [ ] completion
-- [ ] cool ideas
-  - [ ] global blocks (not really sure the use)
+- [ ] cool to have
+  - [ ] pin, branch
+  - [ ] plugin url in any heading level -> for organization
   - [ ] native snippets for code blocks like org mode, see NativeVim
   - [ ] update info as diagnostic hover markdown
-  - [ ]
 
 ## Thanks to
 
-- [paq-nvim](https://github.com/savq/paq-nvim) for all with plugin management logic
-- [LitLua](https://github.com/jwtly10/litlua) for the idea for literate config
+- [paq-nvim](https://github.com/savq/paq-nvim) for all the plugin management logic
+- [LitLua](https://github.com/jwtly10/litlua) for the idea for a literate config
