@@ -4,15 +4,13 @@
 
 alpha software, be careful but have fun.
 
-## Ways of using
+## Bootstrap
 
-- copy lit.lua into your .config/lua/ directory and require it, but this way lit can not manage itself
-
-- bootstrap in your init.lua
+In your init.lua:
 
 ```lua
 
-local litpath = vim.fn.stdpath("data") .. "/lit/lit.nvim"
+local litpath = vim.fn.stdpath("data") .. "/site/pack/lit/start/lit.nvim"
 if not (vim.uv or vim.loop).fs_stat(litpath) then
   local litrepo = "https://github.com/neo451/lit.nvim.git"
   local out = vim.fn.system({ "git", "clone", "--filter=blob:none", litrepo, litpath })
@@ -26,8 +24,6 @@ if not (vim.uv or vim.loop).fs_stat(litpath) then
     os.exit(1)
   end
 end
-
-vim.opt.rtp:append(litpath)
 ```
 
 > [!NOTE]
@@ -51,7 +47,7 @@ vim.g.lit = {
 
 Write your config in markdown in `.config/nvim/init.md`:
 
-1. autho/repo or url as heading, if something is a dependency/library, just put it before the thing that depends on it
+1. author/repo or url -> heading
 
 ```markdown
 # nvim-lua/plenary.nvim
@@ -59,7 +55,7 @@ Write your config in markdown in `.config/nvim/init.md`:
 # nvim-telescope/telescope.nvim
 ```
 
-2. build steps as `vim` or `bash` code blocks
+2. build steps -> `vim` and `bash` code blocks
 
 ````markdown
 # nvim-treesitter/nvim-treesitter
@@ -75,7 +71,7 @@ cargo build --release
 ```
 ````
 
-3. config code as `lua` code blocks
+3. plugin config -> `lua` code blocks
 
 ````markdown
 # stevearc/oil.nvim
@@ -85,28 +81,34 @@ require"oil".setup{}
 ```
 ````
 
-4. plugin spec after the heading
+4. plugin spec -> list items
 
-For supported fields, see documentation for [lz.n](https://github.com/nvim-neorocks/lz.n?tab=readme-ov-file#plugin-spec)
+- if something is a dependency/library, use `opt` flag
+- For supported fields, see documentation for [lz.n](https://github.com/nvim-neorocks/lz.n?tab=readme-ov-file#plugin-spec)
 
 ```markdown
-# saghen/blink.cm
+# nvim-lua/plenary.nvim
 
-- event: InsertEnter
+- opt: `true`
+
+# saghen/blink.cmp
+
+- event: `InsertEnter`
 
 # nvim-neorg/neorg
 
-- ft: norg
+- ft: `norg`
 
 # NeogitOrg/neogit
 
-- cmd: Neogit
+- cmd: `Neogit`
+- keys: `{ { "<leader>gg", "<cmd>Neogit<cr>" } }`
 ```
 
 5. write options in yaml header
 
-- `.number = true` is shorthand for `vim.o.number = true`
-- `.g` to set global variables
+- `.x` for `vim.o.x`
+- `.g.x` for `vim.g.x`
 
 ```markdown
 ---
@@ -127,19 +129,20 @@ For supported fields, see documentation for [lz.n](https://github.com/nvim-neoro
   - [x] YAML header as vim.o / vim.g
   - [x] lazy loading with lz.n
   - [ ] support markdown/html comments
+  - [ ] pin, branch
 - [x] actions
   - [x] clone
   - [x] update
   - [x] sync
   - [x] list
   - [x] edit
-  - [ ] build
+  - [x] build
 - [ ] embedded lua editing
   - [x] lsp -> otter.nvim
   - [x] formatter -> conform.nvim
   - [ ] completion
 - [ ] cool to have
-  - [ ] pin, branch
+  - [ ] native heading completion with activate.nvim
   - [ ] plugin url in any heading level -> for organization
   - [ ] native snippets for code blocks like org mode, see NativeVim
   - [ ] update info as diagnostic hover markdown

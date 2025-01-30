@@ -22,7 +22,7 @@ require 'nvim-treesitter.configs'.setup {}
 
 # saghen/blink.cmp
 
-- event: InsertEnter
+- event: `InsertEnter`
 
 ```bash
 cargo build --release
@@ -87,17 +87,17 @@ local header = [[
 ]]
 
 local spec_str = [[
-- ft: lua
-- keys: <leader>, <leader>H <C-MR> gd K
-- lazy: true
-- event: InsertEnter
-- cmd: "Feed"
+- ft: `lua`
+- keys: `{ { "<leader>gg", "<cmd>Neogit<cr>" }, "<leader>H", "<C-MR>", "gd", "K" }`
+- lazy: `true`
+- event: `InsertEnter`
+- cmd: `Feed`
 ]]
 
 T["tangle"]["spec in paragraphs before code block"] = function()
    local spec = M._parse_spec(spec_str)
    eq(spec.ft, "lua")
-   eq(spec.keys, { "<leader>,", "<leader>H", "<C-MR>", "gd", "K" })
+   eq(spec.keys, { { "<leader>gg", "<cmd>Neogit<cr>" }, "<leader>H", "<C-MR>", "gd", "K" })
    eq(spec.lazy, true)
    eq(spec.event, "InsertEnter")
    eq(spec.cmd, "Feed")
