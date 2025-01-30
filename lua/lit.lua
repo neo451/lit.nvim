@@ -658,9 +658,7 @@ end
 ---installed, the function ignores it. If a package has a `build` argument,
 ---it'll be executed after the package is installed.
 function M.install()
-   dt(Packages)
    local to = vim.tbl_filter(Filter.to_install, Packages)
-   dt(to)
    exe_op("install", clone, to)
 end
 
@@ -832,45 +830,6 @@ function M.get_dependencies(pkg)
    end
 end
 
-api.nvim_create_autocmd("BufEnter", {
-   pattern = Config.init,
-   callback = function()
-      vim.bo.omnifunc = "v:lua.complete_markdown_headers"
-      local ok, otter = pcall(require, "otter")
-      if ok then
-         pcall(otter.activate, { "lua" })
-      end
-      vim.wo.spell = false
-   end,
-})
-
-api.nvim_create_autocmd("BufWritePost", {
-   pattern = Config.init,
-   callback = function(args)
-      local str = table.concat(vim.api.nvim_buf_get_lines(args.buf, 0, -1, false), "\n")
-      Packages = tangle(str)
-      local conform_ok, conform = pcall(require, "conform")
-      if conform_ok then
-         conform.format({ bufnr = api.nvim_get_current_buf(), formatters = { "injected" } })
-      end
-   end,
-})
-
-if not vim.g.lit_loaded then
-   vim.tbl_deep_extend("force", Config, vim.g.lit or {})
-   Packages = tangle(read_config())
-   lock_load()
-   exe_op("resolve", resolve, diff_gather(), true)
-   exe_op("install", clone, vim.tbl_filter(Filter.to_install, default_deps), true)
-
-   pcall(vim.cmd.packadd, "lz.n")
-   -- pcall(vim.cmd.packadd, "lzn-auto-require")
-   exe_op("load", load_config, vim.tbl_filter(Filter.installed, Packages), true)
-   -- require("lzn-auto-require").enable()
-
-   vim.g.lit_loaded = true
-end
-
 function M.remote_list()
    local fp = api.nvim_get_runtime_file("data/data.json", true)[1]
    if fp then
@@ -972,9 +931,50 @@ local function eval_block()
    load(get_code_block())()
 end
 
-vim.keymap.set("n", "<leader>x", eval_block)
-vim.keymap.set("n", "<leader>is", function()
-   dt(Packages)
-end)
+-- vim.keymap.set("n", "<leader>x", eval_block, )
+-- vim.keymap.set("n", "<leader>is", function()
+--    vim.print(Packages)
+-- end)
+--
+
+if not vim.g.lit_loaded then
+   vim.tbl_deep_extend("force", Config, vim.g.lit or {})
+   Packages = tangle(read_config())
+   lock_load()
+   exe_op("resolve", resolve, diff_gather(), true)
+   exe_op("install", clone, vim.tbl_filter(Filter.to_install, default_deps), true)
+
+   pcall(vim.cmd.packadd, "lz.n")
+   -- pcall(vim.cmd.packadd, "lzn-auto-require")
+   exe_op("load", load_config, vim.tbl_filter(Filter.installed, Packages), true)
+   -- require("lzn-auto-require").enable()
+
+   vim.g.lit_loaded = true
+end
+
+api.nvim_create_autocmd("BufEnter", {
+   pattern = Config.init,
+   callback = function(arg)
+      vim.bo.omnifunc = "v:lua.complete_markdown_headers"
+      local ok, otter = pcall(require, "otter")
+      if ok then
+         pcall(otter.activate, { "lua" })
+      end
+      vim.wo.spell = false
+      vim.keymap.set("n", "<enter>", eval_block, { buffer = arg.buf })
+   end,
+})
+
+api.nvim_create_autocmd("BufWritePost", {
+   pattern = Config.init,
+   callback = function(args)
+      local str = table.concat(vim.api.nvim_buf_get_lines(args.buf, 0, -1, false), "\n")
+      Packages = tangle(str)
+      local conform_ok, conform = pcall(require, "conform")
+      if conform_ok then
+         conform.format({ bufnr = api.nvim_get_current_buf(), formatters = { "injected" } })
+      end
+   end,
+})
 
 return M
