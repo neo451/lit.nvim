@@ -3,9 +3,12 @@ local M = {}
 local uv = vim.uv
 local api = vim.api
 local json = vim.json
+local lpeg = vim.lpeg
+local fs = vim.fs
+local P, C, Ct = lpeg.P, lpeg.C, lpeg.Ct
 
 ---@class lit.pkg
----@field branch string #TODO:
+---@field branch string
 ---@field pin boolean #TODO:
 ---@field hash string
 ---@field name string
@@ -14,6 +17,13 @@ local json = vim.json
 ---@field config string
 ---@field status lit.status
 ---@field build string
+---@field cmd string
+---@field colorscheme string
+---@field keys string | string[] | table[] |
+---@field ft string
+---@field event string
+---@field lazy boolean
+---@field enabled boolean
 
 ---TODO: fetch recent commits
 -- curl -s "https://api.github.com/repos/neo451/feed.nvim/commits?per_page=5" | jq '.[] | {sha: .sha, message: .commit.message}'
@@ -25,10 +35,10 @@ local config_dir = vim.fn.stdpath("config")
 local log_dir = vim.fn.stdpath("log")
 
 local Config = {
-   init = vim.fs.joinpath(config_dir, "init.md"),
-   lock = vim.fs.joinpath(config_dir, "lit-lock.json"),
-   path = vim.fs.joinpath(data_dir, "site", "pack", "lit"),
-   log = vim.fs.joinpath(log_dir, "lit.log"),
+   init = fs.joinpath(config_dir, "init.md"),
+   lock = fs.joinpath(config_dir, "lit-lock.json"),
+   path = fs.joinpath(data_dir, "site", "pack", "lit"),
+   log = fs.joinpath(log_dir, "lit.log"),
    url_format = "https://github.com/%s.git",
    clone_args = { "--depth=1", "--recurse-submodules", "--shallow-submodules", "--no-single-branch" },
    dependencies = {
@@ -47,6 +57,7 @@ local Messages = {
    update = { ok = "Updated", err = "Failed to update", nop = "(up-to-date)" },
    remove = { ok = "Removed", err = "Failed to remove" },
    build = { ok = "Built", err = "Failed to build" },
+   load = { ok = "Loaded", err = "Failed to load" },
 }
 
 ---@enum lit.status
@@ -59,6 +70,12 @@ local Status = {
    TO_MOVE = 5,
    TO_RECLONE = 6,
 }
+
+local StatusL = {}
+
+for k, v in pairs(Status) do
+   StatusL[v] = k
+end
 
 -- stylua: ignore start
 ---@type table<string, fun(p: lit.pkg): boolean>
@@ -83,7 +100,27 @@ table.insert(Env, "GIT_TERMINAL_PROMPT=0")
 
 local Lock = {}     -- Table of pgks loaded from the lockfile
 local Packages = {} -- Table of pkgs loaded from the init.md
+local Order = {}
 
+local function read_file(file)
+   local fd = assert(io.open(file, "r"))
+   ---@type string
+   local data = fd:read("*a")
+   fd:close()
+   return data
+end
+
+local function file_exists(file)
+   return vim.uv.fs_stat(file) ~= nil
+end
+
+local function write_file(file, contents)
+   local fd = assert(io.open(file, "w+"))
+   fd:write(contents)
+   fd:close()
+end
+
+---TODO: add timestamp for err
 ---@param pkg lit.pkg
 ---@param err string
 local function log_err(pkg, err)
@@ -96,7 +133,6 @@ local function log_err(pkg, err)
    uv.fs_close(log)
 end
 
-
 ---@param name string
 ---@param msg_op lit.message
 ---@param result "ok" | "err" | "nop"
@@ -108,6 +144,50 @@ local function report(name, msg_op, result, n, total)
       string.format(" Lit:%s %s %s", count, msg_op[result], name),
       result == "err" and vim.log.levels.ERROR or vim.log.levels.INFO
    )
+end
+
+---@param attrs table<string, any>
+---@return boolean
+local function is_opt(attrs)
+   local keys = { cmd = true, keys = true, event = true, ft = true, opt = true }
+   for k in pairs(keys) do
+      if attrs[k] then
+         return true
+      end
+   end
+   return false
+end
+
+---runs the config code block
+---@param pkg lit.pkg
+local function exec_config(pkg)
+   local ok, res = pcall(load, pkg.config, "lit_" .. pkg.name)
+   if ok and res then
+      setfenv(res, _G)
+      local cb_ok, err = pcall(res)
+      if not cb_ok then
+         report(pkg.name, Messages.load, "err")
+         log_err(pkg, err)
+      end
+   else
+      report(pkg.name, Messages.load, "err")
+      log_err(pkg, res)
+   end
+end
+
+---@param dir string
+---@return string
+local function get_git_hash(dir)
+   local first_line = function(path)
+      local file = io.open(path)
+      if file then
+         local line = file:read()
+         file:close()
+         return line
+      end
+   end
+   local head_ref = first_line(dir .. "/.git/HEAD")
+   return head_ref and first_line(dir .. "/.git/" .. head_ref:gsub("ref: ", ""))
 end
 
 ---Object to track result of operations (installs, updates, etc.)
@@ -128,23 +208,13 @@ local function new_counter(total, callback)
    end)
 end
 
-local function build_lookup(pkgs)
-   pkgs = pkgs or Packages
-   local lookup = {}
-   for _, pkg in ipairs(pkgs) do
-      lookup[pkg.name] = pkg
-   end
-   return lookup
-end
-
 ---@return lit.pkg
 local function find_unlisted()
-   local lookup = build_lookup()
    local unlisted = {}
-   for name, t in vim.fs.dir(Config.path) do
+   for name, t in fs.dir(Config.path) do
       if t == "directory" and name ~= "lit.nvim" then
          local dir = Config.path .. name
-         local pkg = lookup[name]
+         local pkg = Packages[name]
          if not pkg or pkg.dir ~= dir then
             table.insert(unlisted, { name = name, dir = dir })
          end
@@ -154,22 +224,16 @@ local function find_unlisted()
 end
 
 ---@param dir
+---@return boolean
 local function rmdir(dir)
-   for name, t in vim.fs.dir(dir) do
-      name = dir .. "/" .. name
-      local ok = (t == "directory") and uv.fs_rmdir(name) or uv.fs_unlink(name)
-      if not ok then
-         return ok
-      end
-   end
-   return uv.fs_rmdir(dir)
+   return vim.fn.delete(dir, "rf") == 0
 end
 
 local function lock_write()
    local pkgs = {}
 
-   for _, pkg in ipairs(Packages) do
-      pkgs[pkg.name] = {
+   for name, pkg in pairs(Packages) do
+      pkgs[name] = {
          dir = pkg.dir,
          url = pkg.url,
          branch = pkg.branch,
@@ -189,18 +253,13 @@ local function lock_write()
 end
 
 local function lock_load()
-   local file = uv.fs_open(Config.lock, "r", 438)
-   if file then
-      local stat = assert(uv.fs_fstat(file))
-      local data = assert(uv.fs_read(file, stat.size, 0))
-      assert(uv.fs_close(file))
-      local ok, result = pcall(json.decode, data)
-      if ok then
-         Lock = not vim.tbl_isempty(result) and result or Packages
-         for name, pkg in pairs(result) do
-            pkg.name = name
-         end
+   local lock_str = read_file(Config.lock)
+   if lock_str then
+      local result = json.decode(lock_str)
+      for name, pkg in pairs(result) do
+         pkg.name = name
       end
+      Lock = not vim.tbl_isempty(result) and result or Packages
    else
       lock_write()
       Lock = Packages
@@ -210,9 +269,8 @@ end
 local function diff_gather()
    local diffs = {}
    for name, lock_pkg in pairs(Lock) do
-      local lookup = build_lookup()
-      local pack_pkg = lookup[name]
-      if pack_pkg and Filter.not_removed(lock_pkg) and not vim.deep_equal(lock_pkg, pack_pkg) then
+      local pack_pkg = Packages[name]
+      if pack_pkg and Filter.not_removed(lock_pkg) then
          for k, v in pairs({
             dir = Status.TO_MOVE,
             branch = Status.TO_RECLONE,
@@ -228,101 +286,45 @@ local function diff_gather()
    return diffs
 end
 
----@param pkg lit.pkg
-local function reclone(pkg, counter, build_queue)
-   local ok = rmdir(pkg.dir)
-   if not ok then
-      return
-   end
-   local args = vim.list_extend({ "clone", pkg.url }, Config.clone_args)
-   if pkg.branch then
-      vim.list_extend(args, { "-b", pkg.branch })
-   end
-   table.insert(args, pkg.dir)
-   vim.system({ "git", unpack(args) }, {}, function(obj)
-      local ok = obj.code == 0
-      if ok then
-         pkg.status = Status.INSTALLED
-         pkg.hash = get_git_hash(pkg.dir)
-         lock_write()
-         if pkg.build then
-            table.insert(build_queue, pkg)
-         end
-      end
-   end)
-end
-
----Move package to wanted location.
----@param src lit.pkg
----@param dst lit.pkg
-local function move(src, dst)
-   local ok = uv.fs_rename(src.dir, dst.dir)
-   if ok then
-      dst.status = Status.INSTALLED
-      lock_write()
-   else
-      log_err(src, "move faild!")
-   end
-end
-
-local function resolve(pkg, counter, build_queue)
-   local lookup = build_lookup()
-   if Filter.to_move(pkg) then
-      move(pkg, lookup[pkg.name])
-   elseif Filter.to_reclone(pkg) then
-      reclone(lookup[pkg.name], counter, build_queue)
-   end
-end
-
----@param dir Path
----@return string
-local function get_git_hash(dir)
-   local first_line = function(path)
-      local file = io.open(path)
-      if file then
-         local line = file:read()
-         file:close()
-         return line
-      end
-   end
-   local head_ref = first_line(dir .. "/.git/HEAD")
-   return head_ref and first_line(dir .. "/.git/" .. head_ref:gsub("ref: ", ""))
-end
-
 -- TODO: pin, branch
 ---@param url string
----@param opt boolean
+---@param opt boolean?
 ---@return table
 local function url2pkg(url, opt)
    opt = opt or false
    url = (url:match("^https?://") and url:gsub(".git$", "") .. ".git") -- [1] is a URL
        or string.format(Config.url_format, url)                        -- [1] is a repository name
    local name = url:gsub("%.git$", ""):match("/([%w-_.]+)$")
-   local dir = vim.fs.joinpath(Config.path, opt and "opt" or "start", name)
+   local dir = fs.joinpath(Config.path, opt and "opt" or "start", name)
 
    return {
       name = name,
       url = url,
       dir = dir,
       hash = get_git_hash(dir),
-      status = uv.fs_stat(dir) and Status.INSTALLED or Status.TO_INSTALL,
+      status = (uv.fs_stat(dir) or name == "lit.nvim") and Status.INSTALLED or Status.TO_INSTALL,
    }
 end
 
 local rm_ticks = function(str)
-   return select(1, string.gsub(str, '`.+`', function(s)
-      s = s:sub(2, -2)
-      if s == "true" or s == "false" or s:find("{.+}") or tonumber(s) then
-         return s
-      else
-         return '"' .. s .. '"'
-      end
-   end))
+   return select(
+      1,
+      string.gsub(str, "`.+`", function(s)
+         s = s:sub(2, -2)
+         if s == "true" or s == "false" or s:find("{.+}") or tonumber(s) then
+            return s
+         else
+            return '"' .. s .. '"'
+         end
+      end)
+   )
 end
 
 local function parse_spec(str)
    str = vim.trim(str)
-   if not str then return end
+   if not str then
+      return
+   end
    local attrs = {}
    for line in vim.gsplit(str, "\n") do
       if line:find("^- %w+: .+") then
@@ -345,25 +347,10 @@ local tangle = function(str)
       return vim.tbl_map(url2pkg, Config.dependencies)
    end
 
-   local lpeg = vim.lpeg
-   local P, C, Ct = lpeg.P, lpeg.C, lpeg.Ct
-
    local function parse_code_block(...)
       assert(select("#", ...) == 2)
       local type, code = ...
       return { type = type, code = code }
-   end
-
-   ---@param attr table<string, any>
-   ---@return boolean
-   local function is_opt(attr)
-      local keys = { cmd = true, keys = true, event = true, ft = true, opt = true }
-      for k in pairs(attr) do
-         if keys[k] then
-            return true
-         end
-      end
-      return false
    end
 
    local function parse_entry(url, attrs, ...)
@@ -436,16 +423,20 @@ local tangle = function(str)
       end
    end
 
-   local lookup = build_lookup(pkgs)
+   local ret = {}
+   for _, pkg in ipairs(pkgs) do
+      ret[pkg.name] = pkg
+      Order[#Order + 1] = pkg.name
+   end
 
    for _, url in ipairs(Config.dependencies) do
       local pkg = url2pkg(url, false)
-      if not lookup[pkg.name] then
-         table.insert(pkgs, pkg)
+      if not ret[pkg.name] then
+         ret[pkg.name] = pkg
       end
    end
 
-   return pkgs
+   return ret
 end
 
 ---@param pkg lit.pkg
@@ -470,27 +461,13 @@ local function log_update_changes(pkg, prev_hash, cur_hash)
 end
 
 ---@param pkg lit.pkg
-local function exec_config(pkg)
-   local ok, cb = pcall(load, pkg.config, "lit_" .. pkg.name)
-   if ok and cb then
-      setfenv(cb, _G)
-      local cb_ok, err = pcall(cb)
-      if not cb_ok then
-         vim.notify("config err for " .. pkg.name .. ": " .. err, 2)
-      end
-   else
-      vim.notify("invalid config err for " .. pkg.name, 2)
-   end
-end
-
----@param pkg lit.pkg
 local function load_config(pkg)
    if pkg.name == "lit.nvim" then
       return exec_config(pkg)
    end
    local has_lzn, lzn = pcall(require, "lz.n")
    if has_lzn then
-      lzn.load {
+      lzn.load({
          pkg.name,
          cmd = pkg.cmd,
          lazy = pkg.lazy,
@@ -501,7 +478,7 @@ local function load_config(pkg)
          after = pkg.config and function()
             exec_config(pkg)
          end or nil,
-      }
+      })
    else
       vim.cmd.packadd(pkg.name)
    end
@@ -531,10 +508,11 @@ end
 ---@param pkg lit.pkg
 ---@param counter function
 ---@param build_queue table
----@param dep_queue table
-local function clone(pkg, counter, build_queue, dep_queue)
-   local args = vim.list_extend({ "git", "clone", pkg.url }, Config.clone_args)
-   table.insert(args, pkg.dir)
+local function clone(pkg, counter, build_queue)
+   local args = vim.list_extend({ "git", "clone", pkg.url, pkg.dir }, Config.clone_args)
+   if pkg.branch then
+      vim.list_extend(args, { "-b", pkg.branch })
+   end
 
    vim.system(
       args,
@@ -547,11 +525,6 @@ local function clone(pkg, counter, build_queue, dep_queue)
             if pkg.build then
                table.insert(build_queue, pkg)
             end
-
-            -- local deps = M.get_dependencies(pkg)
-            -- if deps and dep_queue then
-            --    vim.list_extend(dep_queue, deps)
-            -- end
          else
             log_err(pkg, obj.stderr)
             rmdir(pkg.dir)
@@ -565,6 +538,11 @@ end
 ---@param counter function
 ---@param build_queue table
 local function pull(pkg, counter, build_queue)
+   if not file_exists(pkg.dir) then
+      counter(pkg.name, Messages.update, "err")
+      log_err(pkg, "pulling in a non-exist dir")
+      return
+   end
    local prev_hash = Lock[pkg.name] and Lock[pkg.name].hash or pkg.hash
    vim.system(
       { "git", "pull", "--recurse-submodules", "--update-shallow" },
@@ -610,8 +588,60 @@ local function remove(pkg, counter)
       counter(pkg.name, Messages.remove, "ok")
       Packages[pkg.name] = { name = pkg.name, status = Status.REMOVED }
    else
-      log_err(pkg, err)
+      if err then
+         log_err(pkg, "failed to remove")
+      end
       lock_write()
+   end
+end
+
+---@param pkg lit.pkg
+local function reclone(pkg, counter, build_queue)
+   local ok = rmdir(pkg.dir)
+   print(ok)
+   -- FIXME:
+   if ok then
+      print("herer")
+      clone(pkg, counter, build_queue)
+   else
+      print("falied to remove?")
+   end
+   -- local args = vim.list_extend({ "clone", pkg.url }, Config.clone_args)
+   -- if pkg.branch then
+   --    vim.list_extend(args, { "-b", pkg.branch })
+   -- end
+   -- table.insert(args, pkg.dir)
+   -- vim.system({ "git", unpack(args) }, {}, function(obj)
+   --    local ok = obj.code == 0
+   --    if ok then
+   --       pkg.status = Status.INSTALLED
+   --       pkg.hash = get_git_hash(pkg.dir)
+   --       lock_write()
+   --       if pkg.build then
+   --          table.insert(build_queue, pkg)
+   --       end
+   --    end
+   -- end)
+end
+
+---Move package to wanted location.
+---@param src lit.pkg
+---@param dst lit.pkg
+local function move(src, dst)
+   local ok = uv.fs_rename(src.dir, dst.dir)
+   if ok then
+      dst.status = Status.INSTALLED
+      lock_write()
+   else
+      log_err(src, "move faild!")
+   end
+end
+
+local function resolve(pkg, counter, build_queue)
+   if Filter.to_move(pkg) then
+      move(pkg, Packages[pkg.name])
+   elseif Filter.to_reclone(pkg) then
+      reclone(Packages[pkg.name], counter, build_queue)
    end
 end
 
@@ -630,18 +660,20 @@ local function exe_op(op, fn, pkgs, silent)
    end
 
    local build_queue = {}
-   local dep_queue = {}
 
    local function after(ok, err, nop)
       local summary = " Lit: %s complete. %d ok; %d errors;" .. (nop > 0 and " %d no-ops" or "")
       vim.notify(string.format(summary, op, ok, err, nop))
 
-      -- vim.cmd("packloadall! | silent! helptags ALL")
+      vim.cmd("packloadall! | silent! helptags ALL")
+      for _, pkg in pairs(Packages) do
+         if not pkg.loaded and not is_opt(pkg) and not vim.list_contains(build_queue, pkg) then
+            load_config(pkg)
+            pkg.loaded = true
+         end
+      end
       if #build_queue ~= 0 then
          exe_op("build", build, build_queue)
-      end
-      if #dep_queue ~= 0 then
-         exe_op("install", clone, dep_queue)
       end
       vim.cmd("doautocmd User LitDone" .. op:gsub("^%l", string.upper))
    end
@@ -650,7 +682,7 @@ local function exe_op(op, fn, pkgs, silent)
    counter() -- Initialize counter
 
    for _, pkg in pairs(pkgs) do
-      fn(pkg, counter, build_queue, dep_queue)
+      fn(pkg, counter, build_queue)
    end
 end
 
@@ -691,9 +723,8 @@ function M.log()
 end
 
 function M.build(name)
-   local lookup = build_lookup()
    if name then
-      build(lookup[name])
+      build(Packages[name])
    else
       exe_op("build", build, vim.tbl_filter(Filter.has_build, Packages))
    end
@@ -701,24 +732,25 @@ end
 
 --- FIXME:
 function M.list()
-   local installed = vim.tbl_filter(Filter.installed, Packages)
-   local removed = vim.tbl_filter(Filter.removed, Packages)
-   local function sort_by_name(t)
-      table.sort(t, function(a, b)
-         return a.name < b.name
-      end)
+   local function pkg2md(pkg)
+      local res = {}
+      res[#res + 1] = "# " .. pkg.name .. " " .. StatusL[pkg.status]
+      res[#res + 1] = ""
+      return res
    end
-   sort_by_name(installed)
-   sort_by_name(removed)
-   local markers = { "+", "*" }
-   for header, pkgs in pairs({ ["Installed packages:"] = installed, ["Recently removed:"] = removed }) do
-      if #pkgs ~= 0 then
-         print(header)
-         for _, pkg in ipairs(pkgs) do
-            print(" ", markers[pkg.status] or " ", pkg.name)
-         end
-      end
+
+   local lines = {}
+   for _, pkg in pairs(Packages) do
+      vim.list_extend(lines, pkg2md(pkg))
    end
+   local buf = api.nvim_create_buf(false, true)
+   api.nvim_buf_set_lines(buf, 0, -1, false, lines)
+   vim.bo[buf].filetype = "markdown"
+
+   api.nvim_open_win(buf, true, {
+      split = "below",
+   })
+   vim.keymap.set({ "n", "i" }, "q", "<cmd>close<cr>", { buffer = buf })
 end
 
 ---@alias lit.op
@@ -758,20 +790,7 @@ end, {
    end,
 })
 
----@return string?
-local read_config = function()
-   local ret
-   local f = io.open(Config.init, "r")
-   if f then
-      ret = f:read("*a")
-      f:close()
-   end
-   return ret
-end
-
-local function file_exists(file)
-   return vim.uv.fs_stat(file) ~= nil
-end
+---{{dependencies format: lazyspec, packspec, rockspec}}
 
 local function safe_load(fstr)
    local ok, fn = pcall(load, fstr)
@@ -795,7 +814,7 @@ local function lazyspec(pkg, fstr)
          lpkg.dependencies = nil
       end
       lpkg.opts = nil
-      if url2pkg(lpkg[1]).name ~= pkg.name then
+      if url2pkg(lpkg[1], false).name ~= pkg.name then
          ret[#ret + 1] = type(lpkg) == "table" and lpkg or { lpkg }
       end
    end
@@ -819,25 +838,18 @@ local pkg_formats = {
 ---@return lit.pkg[]?
 function M.get_dependencies(pkg)
    for file, handler in pairs(pkg_formats) do
-      local fp = vim.fs.joinpath(pkg.dir, file)
+      local fp = fs.joinpath(pkg.dir, file)
       if file_exists(fp) then
-         local f = io.open(fp)
-         assert(f)
-         local fstr = f:read("*a")
-         f:close()
-         return handler(pkg, fstr)
+         return handler(pkg, read_file(fp))
       end
    end
 end
 
+---{{Plugin Index and completion}}
 function M.remote_list()
    local fp = api.nvim_get_runtime_file("data/data.json", true)[1]
    if fp then
-      local f = io.open(fp)
-      assert(f)
-      local fstr = f:read("*a")
-      f:close()
-      local obj = json.decode(fstr)
+      local obj = json.decode(read_file(fp))
       local list = {}
       for _, v in pairs(obj) do
          vim.list_extend(list, v)
@@ -886,11 +898,6 @@ end
 -- Optional: Map a key to trigger completion
 -- api.nvim_set_keymap("i", "<C-Space>", "<C-X><C-O>", { noremap = true, silent = true })
 
--- dt(M.remote_list())
-
-M._tangle = tangle
-M._parse_spec = parse_spec
-
 local function get_code_block()
    local cursor_pos = api.nvim_win_get_cursor(0)
    local current_line = cursor_pos[1] -- 1-based index
@@ -931,50 +938,58 @@ local function eval_block()
    load(get_code_block())()
 end
 
--- vim.keymap.set("n", "<leader>x", eval_block, )
--- vim.keymap.set("n", "<leader>is", function()
---    vim.print(Packages)
--- end)
---
-
 if not vim.g.lit_loaded then
    vim.tbl_deep_extend("force", Config, vim.g.lit or {})
-   Packages = tangle(read_config())
+   Packages = tangle(read_file(Config.init))
    lock_load()
    exe_op("resolve", resolve, diff_gather(), true)
    exe_op("install", clone, vim.tbl_filter(Filter.to_install, default_deps), true)
 
    pcall(vim.cmd.packadd, "lz.n")
-   -- pcall(vim.cmd.packadd, "lzn-auto-require")
-   exe_op("load", load_config, vim.tbl_filter(Filter.installed, Packages), true)
-   -- require("lzn-auto-require").enable()
+   pcall(vim.cmd.packadd, "lzn-auto-require")
+
+   local ok, lzn_auto = pcall(require, "lzn-auto-require")
+   if ok then
+      lzn_auto.enable()
+   end
+
+   for _, name in ipairs(Order) do
+      local pkg = Packages[name]
+      if Filter.installed(pkg) then
+         load_config(pkg)
+      end
+   end
+
+   ---{{Autocmds and buffer keymaps}}
+   api.nvim_create_autocmd("BufEnter", {
+      pattern = Config.init,
+      callback = function(arg)
+         -- vim.bo.omnifunc = "v:lua.complete_markdown_headers"
+         local ok, otter = pcall(require, "otter")
+         if ok then
+            pcall(otter.activate, { "lua" })
+         end
+         vim.wo.spell = false
+         vim.keymap.set("n", "<enter>", eval_block, { buffer = arg.buf })
+      end,
+   })
+
+   api.nvim_create_autocmd("BufWritePost", {
+      pattern = Config.init,
+      callback = function(args)
+         local str = table.concat(vim.api.nvim_buf_get_lines(args.buf, 0, -1, false), "\n")
+         Packages = tangle(str)
+         local conform_ok, conform = pcall(require, "conform")
+         if conform_ok then
+            conform.format({ bufnr = api.nvim_get_current_buf(), formatters = { "injected" } })
+         end
+      end,
+   })
 
    vim.g.lit_loaded = true
 end
 
-api.nvim_create_autocmd("BufEnter", {
-   pattern = Config.init,
-   callback = function(arg)
-      vim.bo.omnifunc = "v:lua.complete_markdown_headers"
-      local ok, otter = pcall(require, "otter")
-      if ok then
-         pcall(otter.activate, { "lua" })
-      end
-      vim.wo.spell = false
-      vim.keymap.set("n", "<enter>", eval_block, { buffer = arg.buf })
-   end,
-})
-
-api.nvim_create_autocmd("BufWritePost", {
-   pattern = Config.init,
-   callback = function(args)
-      local str = table.concat(vim.api.nvim_buf_get_lines(args.buf, 0, -1, false), "\n")
-      Packages = tangle(str)
-      local conform_ok, conform = pcall(require, "conform")
-      if conform_ok then
-         conform.format({ bufnr = api.nvim_get_current_buf(), formatters = { "injected" } })
-      end
-   end,
-})
+M._tangle = tangle
+M._parse_spec = parse_spec
 
 return M

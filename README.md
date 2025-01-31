@@ -4,12 +4,21 @@
 
 alpha software, be careful but have fun.
 
+## Features
+
+- [ ] 🖋️ Manage all your Neovim plugins with markdown files, with out of box configured lsp, completion and formatting
+- 🔌 Automatic lazy-loading of Lua modules and lazy-loading on events, commands, filetypes, and key mappings, powered by [lz.n](https://github.com/nvim-neorocks/lz.n)
+- 💪 Async execution for improved performance
+- 🛠️ No need to manually compile plugins
+- 🔒 Lockfile `lit-lock.json` to keep track of installed plugins
+- [ ] 📦 Package formats support: lazy.lua, packspec, rockspec
+- [ ] 📋 Commit, branch, tag, version, and full [Semver](https://devhints.io/semver) support
+
 ## Bootstrap
 
 In your init.lua:
 
 ```lua
-
 local litpath = vim.fn.stdpath("data") .. "/site/pack/lit/start/lit.nvim"
 if not (vim.uv or vim.loop).fs_stat(litpath) then
   local litrepo = "https://github.com/neo451/lit.nvim.git"
@@ -43,7 +52,7 @@ vim.g.lit = {
 }
 ```
 
-## Magic
+## Usage
 
 Write your config in markdown in `.config/nvim/init.md`:
 
@@ -105,7 +114,7 @@ require"oil".setup{}
 - keys: `{ { "<leader>gg", "<cmd>Neogit<cr>" } }`
 ```
 
-5. write options in yaml header
+5. options and vars -> yaml header
 
 - `.x` for `vim.o.x`
 - `.g.x` for `vim.g.x`
@@ -129,7 +138,12 @@ require"oil".setup{}
   - [x] YAML header as vim.o / vim.g
   - [x] lazy loading with lz.n
   - [ ] support markdown/html comments
-  - [ ] pin, branch
+- versioning
+  - [x] branch
+  - [ ] pin
+  - [ ] commit
+  - [ ] tag
+  - [ ] semver
 - [x] actions
   - [x] clone
   - [x] update
@@ -137,6 +151,7 @@ require"oil".setup{}
   - [x] list
   - [x] edit
   - [x] build
+  - [x] resolve
 - [ ] embedded lua editing
   - [x] lsp -> otter.nvim
   - [x] formatter -> conform.nvim
@@ -151,3 +166,4 @@ require"oil".setup{}
 
 - [paq-nvim](https://github.com/savq/paq-nvim) for all the plugin management logic
 - [LitLua](https://github.com/jwtly10/litlua) for the idea for a literate config
+- [lz.n](https://github.com/nvim-neorocks/lz.n) for handling lazy loading
