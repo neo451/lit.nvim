@@ -1,4 +1,22 @@
-# 🔥 lit.nvim
+<h1 align="center">🔥 lit.nvim</h1>
+
+<div align="center"><p>
+    <a href="https://github.com/neo451/lit.nvim/pulse">
+      <img alt="Last commit" src="https://img.shields.io/github/last-commit/neo451/lit.nvim?style=for-the-badge&logo=starship&color=8bd5ca&logoColor=D9E0EE&labelColor=302D41"/>
+    </a>
+    <a href="https://github.com/neo451/lit.nvim/blob/main/LICENSE">
+      <img alt="License" src="https://img.shields.io/github/license/neo451/lit.nvim?style=for-the-badge&logo=starship&color=ee999f&logoColor=D9E0EE&labelColor=302D41" />
+    </a>
+    <!-- <a href="https://github.com/neo451/lit.nvim/stargazers"> -->
+    <!--   <img alt="Stars" src="https://img.shields.io/github/stars/neo451/lit.nvim?style=for-the-badge&logo=starship&color=c69ff5&logoColor=D9E0EE&labelColor=302D41" /> -->
+    <!-- </a> -->
+    <!-- <a href="https://github.com/neo451/lit.nvim/issues"> -->
+    <!--   <img alt="Issues" src="https://img.shields.io/github/issues/neo451/lit.nvim?style=for-the-badge&logo=bilibili&color=F5E0DC&logoColor=D9E0EE&labelColor=302D41" /> -->
+    <!-- </a> -->
+    <a href="https://github.com/neo451/lit.nvim">
+      <img alt="Repo Size" src="https://img.shields.io/github/repo-size/neo451/lit.nvim?color=%23DDB6F2&label=SIZE&logo=codesandbox&style=for-the-badge&logoColor=D9E0EE&labelColor=302D41" />
+    </a>
+</div>
 
 **(experimental)** Neovim package manager, minimal, literal
 
