@@ -22,6 +22,8 @@
 
 alpha software, be careful but have fun.
 
+see it in action [here](/kickstart.md), [kickstart.nvim](https://github.com/nvim-lua/kickstart.nvim) rewritten with lit.nvim in markdown. 
+
 ## What it does
 
 - [ ] 🖋️ Manage all your Neovim plugins with one markdown file, with out of box configured lsp, completion and formatting
