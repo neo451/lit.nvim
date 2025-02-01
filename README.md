@@ -20,9 +20,9 @@
 
 **(experimental)** Neovim package manager, minimal, literal
 
-alpha software, be careful but have fun.
+Alpha software, be careful but have fun.
 
-see it in action [here](/kickstart.md), [kickstart.nvim](https://github.com/nvim-lua/kickstart.nvim) rewritten with lit.nvim in markdown. 
+See it in action [here](/kickstart.md), [kickstart.nvim](https://github.com/nvim-lua/kickstart.nvim) rewritten with lit.nvim in markdown.
 
 ## What it does
 
@@ -182,9 +182,9 @@ require"oil".setup{}
   - [x] formatter -> conform.nvim
   - [ ] completion
 - [ ] cool to have
-  - [ ] native heading completion with activate.nvim
-  - [ ] plugin url in any heading level -> for organization
+  - [x] plugin url in any heading level -> for organization
   - [ ] native snippets for code blocks like org mode, see NativeVim
+  - [ ] native heading completion with activate.nvim
   - [ ] update info as diagnostic hover markdown
 
 ## Thanks to

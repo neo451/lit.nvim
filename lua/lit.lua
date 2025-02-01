@@ -349,7 +349,7 @@ local default_deps = {}
 
 ---@param str string?
 ---@return table<string, lit.pkg>
-local tangle = function(str)
+local function tangle(str)
    if not str then
       return vim.tbl_map(url2pkg, Config.dependencies)
    end
@@ -361,6 +361,9 @@ local tangle = function(str)
    end
 
    local function parse_entry(url, attrs, ...)
+      if not url:find("/") then
+         return
+      end
       local ret = url2pkg(url, is_opt(attrs))
       local chunks = { ... }
 
@@ -398,7 +401,7 @@ local tangle = function(str)
    end
 
    local nl = P("\n")
-   local heading = P("#") * C((1 - nl) ^ 0) / vim.trim
+   local heading = (P("#") ^ 1) * C((1 - nl) ^ 0) / vim.trim
    local ticks = P("```")
    local lang = C(P("lua") + P("vim") + P("bash"))
    local code = C((1 - ticks) ^ 0) / vim.trim
@@ -413,9 +416,9 @@ local tangle = function(str)
    local pkgs = grammar:match(str)
    local options
    if vim.tbl_isempty(pkgs) then
-      -- return
       return vim.tbl_map(url2pkg, Config.dependencies)
    end
+
    if not pkgs[1].name then
       options = table.remove(pkgs, 1)
    end
