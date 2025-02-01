@@ -401,7 +401,7 @@ local tangle = function(str)
    local entry = ((heading * desc ^ -1 * code_blocks) / parse_entry) * nl ^ 0
    local dash = P("---")
    local header = dash * nl * C((1 - P("-")) ^ 0) / parse_header * nl ^ 0 * dash * nl ^ 1
-   local grammar = Ct(header ^ -1 * entry ^ 0)
+   local grammar = Ct(header ^ -1 * desc * entry ^ 0)
 
    local pkgs = grammar:match(str)
    local options
@@ -414,19 +414,21 @@ local tangle = function(str)
    end
 
    if options then
-      for k, v in pairs(options.o) do
+      for k, v in pairs(options.o or {}) do
          vim.o[k] = v
       end
 
-      for k, v in pairs(options.g) do
+      for k, v in pairs(options.g or {}) do
          vim.g[k] = v
       end
    end
 
    local ret = {}
    for _, pkg in ipairs(pkgs) do
-      ret[pkg.name] = pkg
-      Order[#Order + 1] = pkg.name
+      if pkg.name then
+         ret[pkg.name] = pkg
+         Order[#Order + 1] = pkg.name
+      end
    end
 
    for _, url in ipairs(Config.dependencies) do
@@ -938,7 +940,7 @@ local function eval_block()
    load(get_code_block())()
 end
 
-if not vim.g.lit_loaded then
+if not vim.g.lit_loaded and #vim.api.nvim_list_uis() ~= 0 then
    vim.tbl_deep_extend("force", Config, vim.g.lit or {})
    Packages = tangle(read_file(Config.init))
    lock_load()
@@ -960,14 +962,28 @@ if not vim.g.lit_loaded then
       end
    end
 
+   if not Packages['conform.nvim'].config then
+      require("conform").setup({
+         format_on_save = {
+            timeout_ms = 500,
+            lsp_format = "fallback",
+         },
+         formatters_by_ft = {
+            ["_"] = { "trim_whitespace" },
+            lua = { "stylua" },
+            markdown = { "prettier" },
+         },
+      })
+   end
+
    ---{{Autocmds and buffer keymaps}}
    api.nvim_create_autocmd("BufEnter", {
       pattern = Config.init,
       callback = function(arg)
          -- vim.bo.omnifunc = "v:lua.complete_markdown_headers"
-         local ok, otter = pcall(require, "otter")
-         if ok then
-            pcall(otter.activate, { "lua" })
+         local otter_ok, otter = pcall(require, "otter")
+         if otter_ok then
+            otter.activate({ "lua" })
          end
          vim.wo.spell = false
          vim.keymap.set("n", "<enter>", eval_block, { buffer = arg.buf })

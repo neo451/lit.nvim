@@ -35,7 +35,7 @@ alpha software, be careful but have fun.
 ## What it won't do
 
 - Have an UI
-- Take over the initialization process
+- Take over Neovim initialization
 
 ## Bootstrap
 

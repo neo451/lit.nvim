@@ -5,8 +5,10 @@ local eq = MiniTest.expect.equality
 
 local src = [[
 ---
-wrap: true
+.wrap: true
 ---
+
+any documentation here
 
 # nvim-treesitter/nvim-treesitter
 
@@ -74,12 +76,12 @@ T["tangle"] = MiniTest.new_set()
 
 T["tangle"]["headings and codeblocks"] = function()
    local res = M._tangle(src)
-   eq(":TSUpdate", res[1].build)
-   eq("require 'nvim-treesitter.configs'.setup {}", res[1].config)
-   eq("https://github.com/nvim-treesitter/nvim-treesitter.git", res[1].url)
-   eq("nvim-treesitter", res[1].name)
-   eq("cargo build --release", res[2].build)
-   eq("InsertEnter", res[2].event)
+   eq(":TSUpdate", res["nvim-treesitter"].build)
+   eq("require 'nvim-treesitter.configs'.setup {}", res["nvim-treesitter"].config)
+   eq("https://github.com/nvim-treesitter/nvim-treesitter.git", res["nvim-treesitter"].url)
+   eq("nvim-treesitter", res["nvim-treesitter"].name)
+   eq("cargo build --release", res["blink.cmp"].build)
+   eq("InsertEnter", res["blink.cmp"].event)
 end
 
 local header = [[
