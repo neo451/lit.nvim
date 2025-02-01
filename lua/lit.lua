@@ -115,6 +115,12 @@ local function file_exists(file)
    return vim.uv.fs_stat(file) ~= nil
 end
 
+local function pkg_exists(name)
+   local opt_fp = fs.joinpath(Config.path, "opt", name)
+   local start_fp = fs.joinpath(Config.path, "start", name)
+   return file_exists(opt_fp) or file_exists(start_fp)
+end
+
 local function write_file(file, contents)
    local fd = assert(io.open(file, "w+"))
    fd:write(contents)
@@ -303,7 +309,7 @@ local function url2pkg(url, opt)
       url = url,
       dir = dir,
       hash = get_git_hash(dir),
-      status = (uv.fs_stat(dir) or name == "lit.nvim") and Status.INSTALLED or Status.TO_INSTALL,
+      status = (file_exists(dir) or name == "lit.nvim") and Status.INSTALLED or Status.TO_INSTALL,
    }
 end
 
@@ -983,7 +989,9 @@ if not vim.g.lit_loaded and #vim.api.nvim_list_uis() ~= 0 then
       pattern = Config.init,
       callback = function(arg)
          -- vim.bo.omnifunc = "v:lua.complete_markdown_headers"
-         vim.api.nvim_create_augroup("lspconfig", {})
+         if not pkg_exists("neovim-nvim-lspconfig") then
+            vim.api.nvim_create_augroup("lspconfig", {})
+         end
          local otter_ok, otter = pcall(require, "otter")
          if otter_ok then
             otter.activate({ "lua" })
