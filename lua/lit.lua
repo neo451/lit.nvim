@@ -24,6 +24,7 @@ local P, C, Ct = lpeg.P, lpeg.C, lpeg.Ct
 ---@field event string
 ---@field lazy boolean
 ---@field enabled boolean
+---@field priority boolean
 
 ---TODO: fetch recent commits
 -- curl -s "https://api.github.com/repos/neo451/feed.nvim/commits?per_page=5" | jq '.[] | {sha: .sha, message: .commit.message}'
@@ -471,6 +472,7 @@ local function load_config(pkg)
    if has_lzn then
       lzn.load({
          pkg.name,
+         priority = pkg.priority,
          cmd = pkg.cmd,
          lazy = pkg.lazy,
          ft = pkg.ft,
@@ -981,6 +983,7 @@ if not vim.g.lit_loaded and #vim.api.nvim_list_uis() ~= 0 then
       pattern = Config.init,
       callback = function(arg)
          -- vim.bo.omnifunc = "v:lua.complete_markdown_headers"
+         vim.api.nvim_create_augroup("lspconfig", {})
          local otter_ok, otter = pcall(require, "otter")
          if otter_ok then
             otter.activate({ "lua" })
