@@ -103,8 +103,15 @@ local Lock = {}     -- Table of pgks loaded from the lockfile
 local Packages = {} -- Table of pkgs loaded from the init.md
 local Order = {}
 
-local function read_file(file)
-   local fd = assert(io.open(file, "r"))
+local function read_file(file, fallback)
+   local fd = io.open(file, "r")
+   if not fd then
+      fd = io.open(file, "w")
+      if fd then
+         fd:close()
+      end
+      return fallback
+   end
    ---@type string
    local data = fd:read("*a")
    fd:close()
@@ -247,20 +254,16 @@ local function lock_write()
          status = pkg.status,
       }
    end
-   local file = uv.fs_open(Config.lock, "w", 438)
-   if file then
-      local ok, result = pcall(json.encode, pkgs)
-      if not ok then
-         error(result)
-      end
-      assert(uv.fs_write(file, result))
-      assert(uv.fs_close(file))
+   local ok, result = pcall(json.encode, pkgs)
+   if not ok then
+      error(result)
    end
+   write_file(Config.lock, result)
    Lock = Packages
 end
 
 local function lock_load()
-   local lock_str = read_file(Config.lock)
+   local lock_str = read_file(Config.lock, "{}")
    if lock_str then
       local result = json.decode(lock_str)
       for name, pkg in pairs(result) do
