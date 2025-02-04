@@ -25,6 +25,8 @@
 .scrolloff: 10
 ---
 
+# Kickstart.nvim
+
 What is Kickstart?
 
 Kickstart.nvim is _not_ a distribution.
@@ -90,11 +92,13 @@ I hope you enjoy your Neovim journey, - TJ
 
 P.S. You can delete this when you're done too. It's your config now! :)
 
-# tpope/vim-sleuth
+## tpope/vim-sleuth
 
 Detect tabstop and shiftwidth automatically
 
-# lewis6991/gitsigns.nvim
+# Git
+
+## lewis6991/gitsigns.nvim
 
 See `:help gitsigns` to understand what the configuration keys do
 Adds git related signs to the gutter, as well as utilities for managing changes
@@ -111,7 +115,9 @@ require("gitsigns").setup({
 })
 ```
 
-# folke/which-key.nvim
+# UI
+
+## folke/which-key.nvim
 
 NOTE: Plugins can also be configured to run Lua code when they are loaded.
 
@@ -182,19 +188,21 @@ require("which-key").setup({
 })
 ```
 
-# nvim-lua/plenary.nvim
+# Telescope
+
+## nvim-lua/plenary.nvim
 
 - opt: `true`
 
-# nvim-telescope/telescope-ui-select.nvim
+## nvim-telescope/telescope-ui-select.nvim
 
-# nvim-telescope/telescope-fzf-native.nvim
+## nvim-telescope/telescope-fzf-native.nvim
 
 ```bash
 make
 ```
 
-# nvim-telescope/telescope.nvim
+## nvim-telescope/telescope.nvim
 
 - event: `VimEnter`
 
@@ -279,21 +287,30 @@ end, { desc = "[S]earch [/] in Open Files" })
 vim.keymap.set("n", "<leader>sn", function()
    builtin.find_files({ cwd = vim.fn.stdpath("config") })
 end, { desc = "[S]earch [N]eovim files" })
+
 ```
 
-# L3MON4D3/LuaSnip
+# Completion
+
+# rafamadriz/friendly-snippets
+
+```lua
+require("luasnip.loaders.from_vscode").lazy_load()
+```
+
+## L3MON4D3/LuaSnip
 
 ```bash
 make install_jsregexp
 ```
 
-# saadparwaiz1/cmp_luasnip
+## saadparwaiz1/cmp_luasnip
 
-# hrsh7th/cmp-nvim-lsp
+## hrsh7th/cmp-nvim-lsp
 
-# hrsh7th/cmp-path
+## hrsh7th/cmp-path
 
-# hrsh7th/nvim-cmp
+## hrsh7th/nvim-cmp
 
 The five headings aboive adds other completion capabilities.
 nvim-cmp does not ship with all sources by default. They are split into multiple repos for maintenance purposes.
@@ -377,7 +394,9 @@ cmp.setup({
 })
 ```
 
-# folke/lazydev.nvim
+# LSP
+
+## folke/lazydev.nvim
 
 - ft: `lua`
 
@@ -391,17 +410,17 @@ require("lazydev").setup({
 })
 ```
 
-# williamboman/mason.nvim
+## williamboman/mason.nvim
 
 ```lua
 require("mason").setup({})
 ```
 
-# williamboman/mason-lspconfig.nvim
+## williamboman/mason-lspconfig.nvim
 
-# WhoIsSethDaniel/mason-tool-installer.nvim
+## WhoIsSethDaniel/mason-tool-installer.nvim
 
-# neovim/nvim-lspconfig
+## neovim/nvim-lspconfig
 
 Brief aside: **What is LSP?**
 
@@ -615,7 +634,9 @@ require("mason-lspconfig").setup({
 })
 ```
 
-# folke/tokyonight.nvim
+# Appearance
+
+## folke/tokyonight.nvim
 
 You can easily change to a different colorscheme.
 Change the name of the colorscheme plugin below, and then
@@ -636,7 +657,7 @@ vim.cmd.colorscheme("tokyonight-storm")
 vim.cmd.hi("Comment gui=none")
 ```
 
-# folke/todo-comments.nvim
+## folke/todo-comments.nvim
 
 Highlight todo, notes, etc in comments
 
@@ -644,7 +665,7 @@ Highlight todo, notes, etc in comments
 require("todo-comments").setup({ signs = false })
 ```
 
-# echasnovski/mini.nvim
+## echasnovski/mini.nvim
 
 Collection of various small independent plugins/modules
 
@@ -686,7 +707,9 @@ end
 --  Check out: https://github.com/echasnovski/mini.nvim
 ```
 
-# stevearc/conform.nvim
+# Formatter
+
+## stevearc/conform.nvim
 
 - event: `BufWritePre`
 - keys: `{ "<leader>f" }`
@@ -720,12 +743,6 @@ require("conform").setup({
       -- javascript = { "prettierd", "prettier", stop_after_first = true },
    },
 })
-```
-
-# rafamadriz/friendly-snippets
-
-```lua
-require("luasnip.loaders.from_vscode").lazy_load()
 ```
 
 # nvim-treesitter/nvim-treesitter

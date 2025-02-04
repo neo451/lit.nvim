@@ -1,6 +1,6 @@
 local M = {}
 
-local uv, api, json, lpeg, fs = vim.uv, vim.api, vim.json, vim.lpeg, vim.fs
+local uv, api, json, lpeg, fs, fn = vim.uv, vim.api, vim.json, vim.lpeg, vim.fs, vim.fn
 local P, C, Ct = lpeg.P, lpeg.C, lpeg.Ct
 
 ---@class lit.pkg
@@ -23,18 +23,13 @@ local P, C, Ct = lpeg.P, lpeg.C, lpeg.Ct
 ---@field priority integer
 ---@field loaded boolean
 
----@type string
-local data_dir = vim.fn.stdpath("data")
-local config_dir = vim.fn.stdpath("config")
-local log_dir = vim.fn.stdpath("log")
-
 local Config = {
-   init = fs.joinpath(config_dir, "init.md"),
-   lock = fs.joinpath(config_dir, "lit-lock.json"),
-   path = fs.joinpath(data_dir, "site", "pack", "lit"),
-   log = fs.joinpath(log_dir, "lit.log"),
+   init = fs.joinpath(fn.stdpath("config"), "init.md"),
+   lock = fs.joinpath(fn.stdpath("config"), "lit-lock.json"),
+   path = fs.joinpath(fn.stdpath("data"), "site", "pack", "lit"),
+   log = fs.joinpath(fn.stdpath("log"), "lit.log"),
    url_format = "https://github.com/%s.git",
-   clone_args = { "--depth=1", "--recurse-submodules", "--shallow-submodules", "--no-single-branch" },
+   clone_args = { "--depth=1", "--recurse-submodules", "--filter=blob:none" },
    dependencies = {
       "neo451/lit.nvim",
       "nvim-neorocks/lz.n",
@@ -42,6 +37,7 @@ local Config = {
       "stevearc/conform.nvim",
       "jmbuhr/otter.nvim",
       "roobert/activate.nvim",
+      "nvim-treesitter/nvim-treesitter",
    },
 }
 
@@ -124,7 +120,7 @@ end
 ---@param dir
 ---@return boolean
 local function rmdir(dir)
-   return vim.fn.delete(dir, "rf") == 0
+   return fn.delete(dir, "rf") == 0
 end
 
 local function pkg_exists(name)
@@ -262,7 +258,6 @@ end
 
 local function lock_write()
    local pkgs = {}
-
    for name, pkg in pairs(Packages) do
       pkgs[name] = {
          dir = pkg.dir,
@@ -271,11 +266,7 @@ local function lock_write()
          status = pkg.status,
       }
    end
-   local ok, result = pcall(json.encode, pkgs)
-   if not ok then
-      error(result)
-   end
-   write_file(Config.lock, result)
+   write_file(Config.lock, json.encode(pkgs))
    Lock = Packages
 end
 
@@ -499,7 +490,7 @@ local function build(pkg)
       local ok = pcall(vim.cmd, cmd)
       report(pkg.name, Messages.build, ok and "ok" or "err")
    else
-      vim.fn.jobstart(pkg.build, {
+      fn.jobstart(pkg.build, {
          cwd = pkg.dir,
          on_exit = function(_, code)
             report(pkg.name, Messages.build, code == 0 and "ok" or "err")
@@ -541,11 +532,6 @@ end
 ---@param counter function
 ---@param build_queue table
 local function pull(pkg, counter, build_queue)
-   if not file_exists(pkg.dir) then
-      counter(pkg.name, Messages.update, "err")
-      log_err(pkg, "pulling in a non-exist dir")
-      return
-   end
    local prev_hash = Lock[pkg.name] and Lock[pkg.name].hash or pkg.hash
    vim.system(
       { "git", "pull", "--recurse-submodules", "--update-shallow" },
@@ -607,22 +593,6 @@ local function reclone(pkg, counter, build_queue)
    else
       print("falied to remove!!!")
    end
-   -- local args = vim.list_extend({ "clone", pkg.url }, Config.clone_args)
-   -- if pkg.branch then
-   --    vim.list_extend(args, { "-b", pkg.branch })
-   -- end
-   -- table.insert(args, pkg.dir)
-   -- vim.system({ "git", unpack(args) }, {}, function(obj)
-   --    local ok = obj.code == 0
-   --    if ok then
-   --       pkg.status = Status.INSTALLED
-   --       pkg.hash = get_git_hash(pkg.dir)
-   --       lock_write()
-   --       if pkg.build then
-   --          table.insert(build_queue, pkg)
-   --       end
-   --    end
-   -- end)
 end
 
 ---Move package to wanted location.
@@ -648,10 +618,11 @@ end
 
 ---Boilerplate around operations (autocmds, counter initialization, etc.)
 ---@param op lit.op
----@param fn function
+---@param f function
 ---@param pkgs lit.pkg[]
 ---@param silent boolean?
-local function exe_op(op, fn, pkgs, silent)
+---@param after function?
+local function exe_op(op, f, pkgs, silent, after)
    if #pkgs == 0 then
       if not silent then
          vim.notify(" Lit: Nothing to " .. op)
@@ -662,35 +633,36 @@ local function exe_op(op, fn, pkgs, silent)
 
    local build_queue = {}
 
-   local function after(ok, err, nop)
-      local summary = " Lit: %s complete. %d ok; %d errors;" .. (nop > 0 and " %d no-ops" or "")
-      vim.notify(string.format(summary, op, ok, err, nop))
+   after = after
+      or function(ok, err, nop)
+         local summary = " Lit: %s complete. %d ok; %d errors;" .. (nop > 0 and " %d no-ops" or "")
+         vim.notify(string.format(summary, op, ok, err, nop))
 
-      vim.cmd("packloadall! | silent! helptags ALL")
+         vim.cmd("packloadall! | silent! helptags ALL")
 
-      for _, name in ipairs(Order) do
-         local pkg = Packages[name]
-         if
-            Filter.installed(pkg)
-            and not pkg.loaded
-            and not is_opt(pkg)
-            and not vim.list_contains(build_queue, pkg)
-         then
-            load_config(pkg)
+         for _, name in ipairs(Order) do
+            local pkg = Packages[name]
+            if
+               Filter.installed(pkg)
+               and not pkg.loaded
+               and not is_opt(pkg)
+               and not vim.list_contains(build_queue, pkg)
+            then
+               load_config(pkg)
+            end
          end
-      end
 
-      if #build_queue ~= 0 then
-         exe_op("build", build, build_queue)
+         if #build_queue ~= 0 then
+            exe_op("build", build, build_queue)
+         end
+         vim.cmd("doautocmd User LitDone" .. op:gsub("^%l", string.upper))
       end
-      vim.cmd("doautocmd User LitDone" .. op:gsub("^%l", string.upper))
-   end
 
    local counter = new_counter(#pkgs, after)
    counter() -- Initialize counter
 
    for _, pkg in pairs(pkgs) do
-      fn(pkg, counter, build_queue)
+      f(pkg, counter, build_queue)
    end
 end
 
@@ -704,7 +676,6 @@ M.install = {
          counter() -- Initialize counter
          clone(Packages[name], counter, {})
       else
-         print("here")
          exe_op("install", clone, vim.tbl_filter(Filter.to_install, Packages))
       end
    end,
@@ -772,17 +743,16 @@ function M.log()
    vim.cmd("sp " .. Config.log)
 end
 
---- FIXME:
 function M.list()
    local function pkg2md(pkg)
       local res = {}
-      res[#res + 1] = "# " .. pkg.name .. " " .. StatusL[pkg.status]
-      res[#res + 1] = ""
+      res[#res + 1] = "- " .. (pkg.as or pkg.name) .. " " .. StatusL[pkg.status]
       return res
    end
 
    local lines = {}
-   for _, pkg in pairs(Packages) do
+   for _, name in ipairs(Order) do
+      local pkg = Packages[name]
       vim.list_extend(lines, pkg2md(pkg))
    end
    local buf = api.nvim_create_buf(false, true)
@@ -799,9 +769,9 @@ end
 ---| "install"
 ---| "update"
 ---| "sync"
----| "remove" -- TODO:
----| "build" -- TODO:
----| "resolve" -- TODO:
+---| "remove"
+---| "build"
+---| "resolve"
 ---| "edit"
 ---| "log"
 ---| "load"
@@ -858,9 +828,9 @@ end, {
 ---{{dependencies format: lazyspec, packspec, rockspec}}
 
 local function safe_load(fstr)
-   local ok, fn = pcall(load, fstr)
-   assert(ok and fn, "wrong spec")
-   local ok_load, spec = pcall(fn)
+   local ok, f = pcall(load, fstr)
+   assert(ok and f, "wrong spec")
+   local ok_load, spec = pcall(f)
    assert(ok_load and spec, "wrong spec")
    return spec
 end
@@ -956,17 +926,32 @@ local function is_short(url)
 end
 
 local function open_url()
-   local url = vim.fn.expand("<cfile>")
+   local url = fn.expand("<cfile>")
    return is_short(url) and vim.ui.open("https://github.com/" .. url)
 end
 
+local state = {
+   otter_loaded = nil,
+}
+
 local function attach_otter()
+   if state.otter_loaded then
+      return
+   end
    if not pkg_exists("nvim-lspconfig") then
       api.nvim_create_augroup("lspconfig", {})
    end
    local otter_ok, otter = pcall(require, "otter")
    if otter_ok then
       otter.activate({ "lua" })
+   end
+end
+
+local function make_sure_parser()
+   vim.cmd("packloadall! | silent! helptags ALL")
+   local ok = pcall(vim.treesitter.language.inspect, name)
+   if not ok then
+      vim.cmd("TSInstall markdown lua")
    end
 end
 
@@ -1051,7 +1036,6 @@ if not vim.g.lit_loaded and #api.nvim_list_uis() ~= 0 then
       })
    end
 
-   -- Set up autocommand to attach LSP to Lua files
    api.nvim_create_autocmd("FileType", {
       pattern = "lua",
       callback = function(args)
@@ -1064,8 +1048,7 @@ if not vim.g.lit_loaded and #api.nvim_list_uis() ~= 0 then
       end,
    })
 
-   ---{{Autocmds and buffer keymaps}}
-   api.nvim_create_autocmd("BufAdd", {
+   api.nvim_create_autocmd("BufEnter", {
       pattern = Config.init,
       callback = function(arg)
          attach_otter()
@@ -1090,7 +1073,7 @@ if not vim.g.lit_loaded and #api.nvim_list_uis() ~= 0 then
 
    lock_load()
    exe_op("resolve", resolve, diff_gather(), true)
-   exe_op("install", clone, vim.tbl_filter(Filter.to_install, Deps), true)
+   exe_op("install", clone, vim.tbl_filter(Filter.to_install, Deps), true, make_sure_parser)
    pcall(vim.cmd.packadd, "lzn-auto-require")
 
    local ok, lzn_auto = pcall(require, "lzn-auto-require")

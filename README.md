@@ -26,7 +26,8 @@ See it in action [here](/kickstart.md), [kickstart.nvim](https://github.com/nvim
 
 ## What it does
 
-- [ ] 🖋️ Manage all your Neovim plugins with one markdown file, with out of box configured lsp, completion and formatting
+- 🖋️ Manage all your Neovim plugins with one markdown file, with out of box configured lsp, completion and formatting
+- 💾 Partial clones instead of shallow clones
 - 🔌 Automatic lazy-loading of Lua modules and lazy-loading on events, commands, filetypes, and key mappings, powered by [lz.n](https://github.com/nvim-neorocks/lz.n)
 - 💪 Async execution for improved performance
 - 🛠️ No need to manually compile plugins
@@ -84,9 +85,11 @@ Write your config in markdown in `.config/nvim/init.md`:
 1. author/repo or url -> heading
 
 ```markdown
-# nvim-lua/plenary.nvim
+# Fuzzy Finder
 
-# nvim-telescope/telescope.nvim
+## nvim-lua/plenary.nvim
+
+## nvim-telescope/telescope.nvim
 ```
 
 2. build steps -> `vim` and `bash` code blocks
