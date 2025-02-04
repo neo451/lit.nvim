@@ -163,9 +163,9 @@ require"oil".setup{}
   - [x] YAML header as vim.o / vim.g
   - [x] lazy loading with lz.n
   - [ ] support markdown/html comments
-- versioning
+- [ ] versioning
   - [x] branch
-  - [ ] pin
+  - [x] pin
   - [ ] commit
   - [ ] tag
   - [ ] semver

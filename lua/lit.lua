@@ -1,15 +1,11 @@
 local M = {}
 
-local uv = vim.uv
-local api = vim.api
-local json = vim.json
-local lpeg = vim.lpeg
-local fs = vim.fs
+local uv, api, json, lpeg, fs = vim.uv, vim.api, vim.json, vim.lpeg, vim.fs
 local P, C, Ct = lpeg.P, lpeg.C, lpeg.Ct
 
 ---@class lit.pkg
 ---@field branch string
----@field pin boolean #TODO:
+---@field pin boolean
 ---@field hash string
 ---@field name string
 ---@field url string
@@ -25,6 +21,7 @@ local P, C, Ct = lpeg.P, lpeg.C, lpeg.Ct
 ---@field lazy boolean
 ---@field enabled boolean
 ---@field priority integer
+---@field loaded boolean
 
 ---@type string
 local data_dir = vim.fn.stdpath("data")
@@ -98,10 +95,8 @@ table.insert(Env, "GIT_TERMINAL_PROMPT=0")
 local function read_file(file, fallback)
    local fd = io.open(file, "r")
    if not fd then
-      fd = io.open(file, "w")
-      if fd then
-         fd:close()
-      end
+      fd = assert(io.open(file, "w"))
+      fd:close()
       return fallback
    end
    ---@type string
@@ -109,10 +104,15 @@ local function read_file(file, fallback)
    fd:close()
    return data
 end
--- TODO: append file
 
 local function write_file(file, contents)
    local fd = assert(io.open(file, "w+"))
+   fd:write(contents)
+   fd:close()
+end
+
+local function append_file(file, contents)
+   local fd = assert(io.open(file, "a+"))
    fd:write(contents)
    fd:close()
 end
@@ -139,11 +139,8 @@ end
 local function log_err(pkg, err)
    err = err or ""
    local name = pkg.name or ""
-   local log = uv.fs_open(Config.log, "a+", 0x1A4)
-   assert(log, "Failed to open log file")
    local output = "\n\n" .. name .. " has error:\n" .. err
-   uv.fs_write(log, output)
-   uv.fs_close(log)
+   append_file(Config.log, output)
 end
 
 ---@param name string
@@ -221,7 +218,6 @@ local function new_counter(total, callback)
    end)
 end
 
--- TODO: pin
 ---@param url string
 ---@param opt boolean?
 ---@return table
@@ -285,7 +281,7 @@ end
 
 local function lock_load()
    local lock_str = read_file(Config.lock, "{}")
-   if lock_str then
+   if lock_str and lock_str ~= "" then
       local result = json.decode(lock_str)
       for name, pkg in pairs(result) do
          pkg.name = name
@@ -381,7 +377,7 @@ local function tangle(str)
    end
 
    local function parse_header(header_str)
-      local ret = { o = {}, g = {}, meta = {} }
+      local ret = { o = {}, g = {} }
       for line in vim.gsplit(header_str, "\n") do
          local k, v = line:match("([^:]+):%s*(.*)")
          if k and v then
@@ -394,8 +390,6 @@ local function tangle(str)
             elseif vim.startswith(k, ".") then
                k = k:sub(2)
                ret.o[k] = loadstring("return " .. v)()
-            else
-               ret.meta[k] = v
             end
          end
       end
@@ -465,10 +459,7 @@ local function log_update_changes(pkg, prev_hash, cur_hash)
       },
       vim.schedule_wrap(function(obj)
          assert(obj.code == 0, "Exited(" .. obj.code .. ")")
-         local log = uv.fs_open(Config.log, "a+", 0x1A4)
-         assert(log, "Failed to open log file")
-         uv.fs_write(log, output .. obj.stdout)
-         uv.fs_close(log)
+         append_file(Config.log, output .. obj.stdout)
       end)
    )
 end
@@ -496,6 +487,7 @@ local function load_config(pkg)
    else
       vim.cmd.packadd(pkg.name)
    end
+   pkg.loaded = true
 end
 
 ---@param pkg lit.pkg
@@ -507,15 +499,12 @@ local function build(pkg)
       local ok = pcall(vim.cmd, cmd)
       report(pkg.name, Messages.build, ok and "ok" or "err")
    else
-      local cmds = vim.split(cmd, " ")
-      vim.system(
-         cmds,
-         { cwd = pkg.dir },
-         vim.schedule_wrap(function(obj)
-            local ok = obj.code == 0
-            report(pkg.name, Messages.build, ok and "ok" or "err")
-         end)
-      )
+      vim.fn.jobstart(pkg.build, {
+         cwd = pkg.dir,
+         on_exit = function(_, code)
+            report(pkg.name, Messages.build, code == 0 and "ok" or "err")
+         end,
+      })
    end
 end
 
@@ -612,7 +601,6 @@ end
 ---@param pkg lit.pkg
 local function reclone(pkg, counter, build_queue)
    local ok = rmdir(pkg.dir)
-   print(ok)
    -- FIXME:
    if ok then
       clone(pkg, counter, build_queue)
@@ -679,12 +667,19 @@ local function exe_op(op, fn, pkgs, silent)
       vim.notify(string.format(summary, op, ok, err, nop))
 
       vim.cmd("packloadall! | silent! helptags ALL")
-      for _, pkg in pairs(Packages) do
-         if not pkg.loaded and not is_opt(pkg) and not vim.list_contains(build_queue, pkg) then
+
+      for _, name in ipairs(Order) do
+         local pkg = Packages[name]
+         if
+            Filter.installed(pkg)
+            and not pkg.loaded
+            and not is_opt(pkg)
+            and not vim.list_contains(build_queue, pkg)
+         then
             load_config(pkg)
-            pkg.loaded = true
          end
       end
+
       if #build_queue ~= 0 then
          exe_op("build", build, build_queue)
       end
@@ -702,19 +697,61 @@ end
 ---Installs all packages listed in your configuration. If a package is already
 ---installed, the function ignores it. If a package has a `build` argument,
 ---it'll be executed after the package is installed.
-function M.install()
-   local to = vim.tbl_filter(Filter.to_install, Packages)
-   exe_op("install", clone, to)
-end
-
+M.install = {
+   impl = function(name)
+      if name then
+         local counter = new_counter(1, function() end)
+         counter() -- Initialize counter
+         clone(Packages[name], counter, {})
+      else
+         print("here")
+         exe_op("install", clone, vim.tbl_filter(Filter.to_install, Packages))
+      end
+   end,
+   complete = function()
+      return vim.tbl_map(function(pkg)
+         return pkg.name
+      end, vim.tbl_filter(Filter.to_install, Packages))
+   end,
+}
 ---Updates the installed packages listed in your configuration. If a package
 ---hasn't been installed with |MInstall|, the function ignores it. If a
 ---package had changes and it has a `build` argument, then the `build` argument
 ---will be executed.
-function M.update()
-   exe_op("update", pull, vim.tbl_filter(Filter.to_update, Packages))
-end
+-- function M.update()
+--    exe_op("update", pull, vim.tbl_filter(Filter.to_update, Packages))
+-- end
+M.update = {
+   impl = function(name)
+      if name then
+         local counter = new_counter(1, function() end)
+         counter() -- Initialize counter
+         pull(Packages[name], counter, {})
+      else
+         exe_op("update", pull, vim.tbl_filter(Filter.to_update, Packages))
+      end
+   end,
+   complete = function()
+      return vim.tbl_map(function(pkg)
+         return pkg.name
+      end, vim.tbl_filter(Filter.to_update, Packages))
+   end,
+}
 
+M.build = {
+   impl = function(name)
+      if name then
+         build(Packages[name])
+      else
+         exe_op("build", build, vim.tbl_filter(Filter.has_build, Packages))
+      end
+   end,
+   complete = function()
+      return vim.tbl_map(function(pkg)
+         return pkg.name
+      end, vim.tbl_filter(Filter.has_build, Packages))
+   end,
+}
 -- Removes packages found on |M-dir| that aren't listed in your
 -- configuration.
 function M.clean()
@@ -733,14 +770,6 @@ end
 function M.log()
    -- TODO: set q for exit
    vim.cmd("sp " .. Config.log)
-end
-
-function M.build(name)
-   if name then
-      build(Packages[name])
-   else
-      exe_op("build", build, vim.tbl_filter(Filter.has_build, Packages))
-   end
 end
 
 --- FIXME:
@@ -779,27 +808,50 @@ end
 
 local ops = { "install", "update", "sync", "list", "edit", "log" }
 
--- TODO: support operation on individual plugins
 api.nvim_create_user_command("Lit", function(opt)
    local op = table.remove(opt.fargs, 1)
    if not op then
       return vim.ui.select(ops, {}, function(choice)
-         vim.schedule(function()
-            if M[choice] then
-               M[choice]()
-            end
-         end)
+         if M[choice] then
+            M[choice]()
+         end
       end)
    end
    if M[op] then
-      M[op](unpack(opt.fargs))
+      if type(M[op]) == "table" then
+         M[op].impl(unpack(opt.fargs))
+      else
+         M[op](unpack(opt.fargs))
+      end
    end
 end, {
    nargs = "*",
-   complete = function(arg_lead, _, _)
-      return vim.tbl_filter(function(key)
-         return key:find(arg_lead) ~= nil
-      end, ops)
+   complete = function(arg_lead, line)
+      local subcmd_key, subcmd_arg_lead = line:match("^['<,'>]*Lit*%s(%S+)%s(.*)$")
+      if
+         subcmd_key
+         and subcmd_arg_lead
+         and M[subcmd_key]
+         and type(M[subcmd_key]) == "table"
+         and M[subcmd_key].complete
+      then
+         local sub_items = M[subcmd_key].complete()
+         return vim.iter(sub_items)
+            :filter(function(arg)
+               return arg:find(subcmd_arg_lead) ~= nil
+            end)
+            :totable()
+      end
+      if line:match("^['<,'>]*Lit*%s+%w*$") then
+         local subcommand_keys = vim.tbl_filter(function(name)
+            return not vim.startswith(name, "_")
+         end, vim.tbl_keys(M))
+         return vim.iter(subcommand_keys)
+            :filter(function(key)
+               return key:find(arg_lead) ~= nil
+            end)
+            :totable()
+      end
    end,
 })
 
@@ -849,7 +901,7 @@ local pkg_formats = {
 
 ---@param pkg lit.pkg
 ---@return lit.pkg[]?
-function M.get_dependencies(pkg)
+function M._get_dependencies(pkg)
    for file, handler in pairs(pkg_formats) do
       local fp = fs.joinpath(pkg.dir, file)
       if file_exists(fp) then
@@ -898,9 +950,19 @@ local function eval_block()
    load(get_code_block())()
 end
 
+---@return boolean
+local function is_short(url)
+   return url:find("/") ~= nil
+end
+
+local function open_url()
+   local url = vim.fn.expand("<cfile>")
+   return is_short(url) and vim.ui.open("https://github.com/" .. url)
+end
+
 local function attach_otter()
    if not pkg_exists("nvim-lspconfig") then
-      vim.api.nvim_create_augroup("lspconfig", {})
+      api.nvim_create_augroup("lspconfig", {})
    end
    local otter_ok, otter = pcall(require, "otter")
    if otter_ok then
@@ -909,15 +971,8 @@ local function attach_otter()
 end
 
 local function setup_lua_ls()
-   local clients = vim.lsp.buf_get_clients()
-
-   if #clients > 0 then
-      print("detected user lua_ls")
-      return
-   end
-
    local config = {
-      cmd = { "lua-language-server" }, -- Update path if needed
+      cmd = { "lua-language-server" },
       settings = {
          Lua = {
             runtime = { version = "LuaJIT" },
@@ -950,6 +1005,7 @@ local function setup_lua_ls()
    }
 
    -- Start the LSP client
+   -- FIXME:
    local client_id = vim.lsp.start_client(config)
 
    if not client_id then
@@ -961,21 +1017,11 @@ local function setup_lua_ls()
    vim.lsp.buf_attach_client(0, client_id)
 end
 
-if not vim.g.lit_loaded and #vim.api.nvim_list_uis() ~= 0 then
+if not vim.g.lit_loaded and #api.nvim_list_uis() ~= 0 then
    vim.tbl_deep_extend("force", Config, vim.g.lit or {})
    Packages = tangle(read_file(Config.init))
-   lock_load()
-   exe_op("resolve", resolve, diff_gather(), true)
-   exe_op("install", clone, vim.tbl_filter(Filter.to_install, Deps), true)
 
    pcall(vim.cmd.packadd, "lz.n")
-   pcall(vim.cmd.packadd, "lzn-auto-require")
-
-   local ok, lzn_auto = pcall(require, "lzn-auto-require")
-   if ok then
-      lzn_auto.enable()
-   end
-
    for _, name in ipairs(Order) do
       local pkg = Packages[name]
       if Filter.installed(pkg) then
@@ -1006,7 +1052,7 @@ if not vim.g.lit_loaded and #vim.api.nvim_list_uis() ~= 0 then
    end
 
    -- Set up autocommand to attach LSP to Lua files
-   vim.api.nvim_create_autocmd("FileType", {
+   api.nvim_create_autocmd("FileType", {
       pattern = "lua",
       callback = function(args)
          if args.file:find(Config.init) then
@@ -1026,13 +1072,14 @@ if not vim.g.lit_loaded and #vim.api.nvim_list_uis() ~= 0 then
          -- vim.bo.omnifunc = "v:lua.complete_markdown_headers"
          vim.wo.spell = false
          vim.keymap.set("n", "<enter>", eval_block, { buffer = arg.buf })
+         vim.keymap.set("n", "gx", open_url, { buffer = arg.buf })
       end,
    })
 
    api.nvim_create_autocmd("BufWritePost", {
       pattern = Config.init,
       callback = function(args)
-         local str = table.concat(vim.api.nvim_buf_get_lines(args.buf, 0, -1, false), "\n")
+         local str = table.concat(api.nvim_buf_get_lines(args.buf, 0, -1, false), "\n")
          Packages = tangle(str)
          local conform_ok, conform = pcall(require, "conform")
          if conform_ok then
@@ -1040,6 +1087,16 @@ if not vim.g.lit_loaded and #vim.api.nvim_list_uis() ~= 0 then
          end
       end,
    })
+
+   lock_load()
+   exe_op("resolve", resolve, diff_gather(), true)
+   exe_op("install", clone, vim.tbl_filter(Filter.to_install, Deps), true)
+   pcall(vim.cmd.packadd, "lzn-auto-require")
+
+   local ok, lzn_auto = pcall(require, "lzn-auto-require")
+   if ok then
+      lzn_auto.enable()
+   end
    vim.g.lit_loaded = true
 end
 
