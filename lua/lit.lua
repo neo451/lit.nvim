@@ -1,6 +1,6 @@
 local M = {}
 
-local uv, api, json, lpeg, fs, fn = vim.uv, vim.api, vim.json, vim.lpeg, vim.fs, vim.fn
+local uv, api, json, lpeg, fs, fn, lsp = vim.uv, vim.api, vim.json, vim.lpeg, vim.fs, vim.fn, vim.lsp
 local P, C, Ct = lpeg.P, lpeg.C, lpeg.Ct
 
 ---@class lit.pkg
@@ -22,11 +22,16 @@ local P, C, Ct = lpeg.P, lpeg.C, lpeg.Ct
 ---@field enabled boolean
 ---@field priority integer
 ---@field loaded boolean
+---@field as string
 
 local Config = {
+   ---@diagnostic disable-next-line: param-type-mismatch
    init = fs.joinpath(fn.stdpath("config"), "init.md"),
+   ---@diagnostic disable-next-line: param-type-mismatch
    lock = fs.joinpath(fn.stdpath("config"), "lit-lock.json"),
+   ---@diagnostic disable-next-line: param-type-mismatch
    path = fs.joinpath(fn.stdpath("data"), "site", "pack", "lit"),
+   ---@diagnostic disable-next-line: param-type-mismatch
    log = fs.joinpath(fn.stdpath("log"), "lit.log"),
    url_format = "https://github.com/%s.git",
    clone_args = { "--depth=1", "--recurse-submodules", "--filter=blob:none" },
@@ -36,8 +41,7 @@ local Config = {
       "horriblename/lzn-auto-require",
       "stevearc/conform.nvim",
       "jmbuhr/otter.nvim",
-      "roobert/activate.nvim",
-      "nvim-treesitter/nvim-treesitter",
+      -- "roobert/activate.nvim",
    },
 }
 
@@ -81,12 +85,13 @@ local Filter = {
 }
 -- stylua: ignore end
 
--- Copy environment variables once. Doing it for every process seems overkill.
-local Env = {}
-for var, val in pairs(uv.os_environ()) do
-   table.insert(Env, string.format("%s=%s", var, val))
-end
-table.insert(Env, "GIT_TERMINAL_PROMPT=0")
+-- -- Copy environment variables once. Doing it for every process seems overkill.
+-- TODO:
+-- local Env = {}
+-- for var, val in pairs(uv.os_environ()) do
+--    table.insert(Env, string.format("%s=%s", var, val))
+-- end
+-- table.insert(Env, "GIT_TERMINAL_PROMPT=0")
 
 local function read_file(file, fallback)
    local fd = io.open(file, "r")
@@ -117,25 +122,27 @@ local function file_exists(file)
    return uv.fs_stat(file) ~= nil
 end
 
----@param dir
+local function create_split(lines)
+   local buf = api.nvim_create_buf(false, true)
+   api.nvim_buf_set_lines(buf, 0, -1, false, lines)
+   vim.bo[buf].filetype = "markdown"
+   vim.bo[buf].modifiable = false
+   vim.keymap.set("n", "q", "<cmd>close<cr>", { buffer = buf })
+   local win = api.nvim_open_win(buf, true, { split = "below", style = "minimal" })
+   return { buf = buf, win = win }
+end
+
+---@param dir string
 ---@return boolean
 local function rmdir(dir)
    return fn.delete(dir, "rf") == 0
 end
 
-local function pkg_exists(name)
-   local opt_fp = fs.joinpath(Config.path, "opt", name)
-   local start_fp = fs.joinpath(Config.path, "start", name)
-   return file_exists(opt_fp) or file_exists(start_fp)
-end
-
 -- TODO: add timestamp for err
 ---@param pkg lit.pkg
 ---@param err string
-local function log_err(pkg, err)
-   err = err or ""
-   local name = pkg.name or ""
-   local output = "\n\n" .. name .. " has error:\n" .. err
+local function log_err(pkg, err, op)
+   local output = ("%s has %s error:\n%s\n\n"):format(pkg.name, op, err)
    append_file(Config.log, output)
 end
 
@@ -173,11 +180,11 @@ local function exec_config(pkg)
       local cb_ok, err = pcall(res)
       if not cb_ok then
          report(pkg.name, Messages.load, "err")
-         log_err(pkg, err)
+         log_err(pkg, err, "load")
       end
    else
       report(pkg.name, Messages.load, "err")
-      log_err(pkg, res)
+      log_err(pkg, res, "load")
    end
 end
 
@@ -374,17 +381,16 @@ local function tangle(str)
          if k and v then
             if vim.startswith(k, ".g") then
                k = k:sub(4)
-               ret.g[k] = loadstring("return " .. v)()
+               vim.g[k] = loadstring("return " .. v)()
             elseif vim.startswith(k, ".o") then
                k = k:sub(4)
-               ret.o[k] = loadstring("return " .. v)()
+               vim.o[k] = loadstring("return " .. v)()
             elseif vim.startswith(k, ".") then
                k = k:sub(2)
-               ret.o[k] = loadstring("return " .. v)()
+               vim.o[k] = loadstring("return " .. v)()
             end
          end
       end
-      return ret
    end
 
    local nl = P("\n")
@@ -401,30 +407,15 @@ local function tangle(str)
    local grammar = Ct(header ^ -1 * desc * entry ^ 0)
 
    local pkgs = grammar:match(str)
-   local options
    if vim.tbl_isempty(pkgs) then
       return vim.tbl_map(url2pkg, Config.dependencies)
-   end
-
-   if not pkgs[1].name then
-      options = table.remove(pkgs, 1)
-   end
-
-   if options then
-      for k, v in pairs(options.o or {}) do
-         vim.o[k] = v
-      end
-
-      for k, v in pairs(options.g or {}) do
-         vim.g[k] = v
-      end
    end
 
    local ret = {}
    for _, pkg in ipairs(pkgs) do
       if pkg.name then
-         ret[pkg.name] = pkg
-         Order[#Order + 1] = pkg.name
+         ret[pkg.as or pkg.name] = pkg
+         Order[#Order + 1] = pkg.as or pkg.name
       end
    end
 
@@ -520,7 +511,7 @@ local function clone(pkg, counter, build_queue)
                table.insert(build_queue, pkg)
             end
          else
-            log_err(pkg, obj.stderr)
+            log_err(pkg, obj.stderr, "clone")
             rmdir(pkg.dir)
          end
          counter(pkg.name, Messages.install, ok and "ok" or "err")
@@ -539,7 +530,7 @@ local function pull(pkg, counter, build_queue)
       vim.schedule_wrap(function(obj)
          if obj.code ~= 0 then
             counter(pkg.name, Messages.update, "err")
-            log_err(pkg, obj.stderr)
+            log_err(pkg, obj.stderr, "update")
             return
          end
          local cur_hash = get_git_hash(pkg.dir)
@@ -578,7 +569,7 @@ local function remove(pkg, counter)
       Packages[pkg.name] = { name = pkg.name, status = Status.REMOVED }
    else
       if err then
-         log_err(pkg, "failed to remove")
+         log_err(pkg, "failed to remove", "remove")
       end
       lock_write()
    end
@@ -604,7 +595,7 @@ local function move(src, dst)
       dst.status = Status.INSTALLED
       lock_write()
    else
-      log_err(src, "move faild!")
+      log_err(src, "move faild!", "move")
    end
 end
 
@@ -666,6 +657,11 @@ local function exe_op(op, f, pkgs, silent, after)
    end
 end
 
+---@param pkg lit.pkg
+local function get_name(pkg)
+   return pkg.as or pkg.name
+end
+
 ---Installs all packages listed in your configuration. If a package is already
 ---installed, the function ignores it. If a package has a `build` argument,
 ---it'll be executed after the package is installed.
@@ -680,9 +676,7 @@ M.install = {
       end
    end,
    complete = function()
-      return vim.tbl_map(function(pkg)
-         return pkg.name
-      end, vim.tbl_filter(Filter.to_install, Packages))
+      return vim.tbl_map(get_name, vim.tbl_filter(Filter.to_install, Packages))
    end,
 }
 ---Updates the installed packages listed in your configuration. If a package
@@ -703,9 +697,7 @@ M.update = {
       end
    end,
    complete = function()
-      return vim.tbl_map(function(pkg)
-         return pkg.name
-      end, vim.tbl_filter(Filter.to_update, Packages))
+      return vim.tbl_map(get_name, vim.tbl_filter(Filter.to_update, Packages))
    end,
 }
 
@@ -718,9 +710,7 @@ M.build = {
       end
    end,
    complete = function()
-      return vim.tbl_map(function(pkg)
-         return pkg.name
-      end, vim.tbl_filter(Filter.has_build, Packages))
+      return vim.tbl_map(get_name, vim.tbl_filter(Filter.has_build, Packages))
    end,
 }
 -- Removes packages found on |M-dir| that aren't listed in your
@@ -738,31 +728,15 @@ function M.edit()
    vim.cmd("e " .. Config.init)
 end
 
-function M.log()
-   -- TODO: set q for exit
-   vim.cmd("sp " .. Config.log)
+function M.list()
+   create_split(vim.tbl_map(function(name)
+      local pkg = Packages[name]
+      return "- " .. get_name(pkg) .. " " .. StatusL[pkg.status]
+   end, Order))
 end
 
-function M.list()
-   local function pkg2md(pkg)
-      local res = {}
-      res[#res + 1] = "- " .. (pkg.as or pkg.name) .. " " .. StatusL[pkg.status]
-      return res
-   end
-
-   local lines = {}
-   for _, name in ipairs(Order) do
-      local pkg = Packages[name]
-      vim.list_extend(lines, pkg2md(pkg))
-   end
-   local buf = api.nvim_create_buf(false, true)
-   api.nvim_buf_set_lines(buf, 0, -1, false, lines)
-   vim.bo[buf].filetype = "markdown"
-
-   api.nvim_open_win(buf, true, {
-      split = "below",
-   })
-   vim.keymap.set({ "n", "i" }, "q", "<cmd>close<cr>", { buffer = buf })
+function M.log()
+   create_split(vim.split(read_file(Config.log), "\n"))
 end
 
 ---@alias lit.op
@@ -938,7 +912,7 @@ local function attach_otter()
    if state.otter_loaded then
       return
    end
-   if not pkg_exists("nvim-lspconfig") then
+   if not pcall(require, "nvim-lspconfig") then
       api.nvim_create_augroup("lspconfig", {})
    end
    local otter_ok, otter = pcall(require, "otter")
@@ -947,60 +921,67 @@ local function attach_otter()
    end
 end
 
-local function make_sure_parser()
-   vim.cmd("packloadall! | silent! helptags ALL")
-   local ok = pcall(vim.treesitter.language.inspect, name)
-   if not ok then
-      vim.cmd("TSInstall markdown lua")
-   end
-end
-
-local function setup_lua_ls()
+local function setup_lua_ls(buf)
    local config = {
       cmd = { "lua-language-server" },
-      settings = {
-         Lua = {
-            runtime = { version = "LuaJIT" },
-            diagnostics = { globals = { "vim" } },
-            workspace = {
-               library = {
-                  vim.env.VIMRUNTIME,
-                  "${3rd}/luv/library",
-               },
-               checkThirdParty = false,
-            },
-            telemetry = { enable = false },
-         },
-      },
-      capabilities = vim.lsp.protocol.make_client_capabilities(),
+      capabilities = lsp.protocol.make_client_capabilities(),
       on_init = function(client)
-         client.config.capabilities.textDocument.completion.completionItem.snippetSupport = true
-         -- Set neovim specific capabilities
-         client.config.capabilities.textDocument.foldingRange = {
-            dynamicRegistration = false,
-            lineFoldingOnly = true,
-         }
-         if client.workspace_folders then
-            local path = client.workspace_folders[1].name
-            if vim.loop.fs_stat(path .. "/.luarc.json") or vim.loop.fs_stat(path .. "/.luarc.jsonc") then
-               return
-            end
+         local path = vim.tbl_get(client, "workspace_folders", 1, "name")
+         if not path then
+            return
          end
+         -- override the lua-language-server settings for Neovim config
+         client.settings = vim.tbl_deep_extend("force", client.settings, {
+            Lua = {
+               runtime = {
+                  version = "LuaJIT",
+               },
+               -- Make the server aware of Neovim runtime files
+               workspace = {
+                  checkThirdParty = false,
+                  library = {
+                     vim.env.VIMRUNTIME,
+                     "${3rd}/luv/library",
+                  },
+                  -- or pull in all of 'runtimepath'. NOTE: this is a lot slower
+                  -- library = vim.api.nvim_get_runtime_file("", true)
+               },
+            },
+         })
       end,
    }
 
    -- Start the LSP client
-   -- FIXME:
-   local client_id = vim.lsp.start_client(config)
+   local client_id = lsp.start(config, { bufnr = buf })
 
-   if not client_id then
+   if client_id then
+      state.client_id = client_id
+   else
       vim.notify("Failed to start lua_ls client", vim.log.levels.ERROR)
       return
    end
-
-   -- Attach to current buffer
-   vim.lsp.buf_attach_client(0, client_id)
 end
+
+---@param trigger string trigger string for snippet
+---@param body string snippet text that will be expanded
+---@param opts? vim.keymap.set.Opts
+---
+---Refer to <https://microsoft.github.io/language-server-protocol/specification/#snippet_syntax>
+---for the specification of valid body.
+local function snippet_add(trigger, body, opts)
+   vim.keymap.set("ia", trigger, function()
+      -- If abbrev is expanded with keys like "(", ")", "<cr>", "<space>",
+      -- don't expand the snippet. Only accept "<c-]>" as trigger key.
+      local c = vim.fn.nr2char(vim.fn.getchar(0))
+      if c ~= "" then
+         vim.api.nvim_feedkeys(trigger .. c, "i", true)
+         return
+      end
+      vim.snippet.expand(body)
+   end, opts)
+end
+
+-- see after/ftplugin/lua.lua for examples
 
 if not vim.g.lit_loaded and #api.nvim_list_uis() ~= 0 then
    vim.tbl_deep_extend("force", Config, vim.g.lit or {})
@@ -1014,7 +995,7 @@ if not vim.g.lit_loaded and #api.nvim_list_uis() ~= 0 then
       end
    end
 
-   if pkg_exists("conform.nvim") and not Packages["conform.nvim"].config then
+   if pcall(require, "conform") and not Packages["conform.nvim"].config then
       require("conform").setup({
          format_on_save = {
             timeout_ms = 500,
@@ -1028,7 +1009,7 @@ if not vim.g.lit_loaded and #api.nvim_list_uis() ~= 0 then
       })
    end
 
-   if pkg_exists("otter.nvim") and not Packages["otter.nvim"].config then
+   if pcall(require, "otter") and not Packages["otter.nvim"].config then
       require("otter").setup({
          buffers = {
             set_filetype = true,
@@ -1038,19 +1019,33 @@ if not vim.g.lit_loaded and #api.nvim_list_uis() ~= 0 then
 
    api.nvim_create_autocmd("FileType", {
       pattern = "lua",
-      callback = function(args)
-         if args.file:find(Config.init) then
-            setup_lua_ls()
-            local opts = { buffer = args.buf }
-            vim.keymap.set("n", "gd", vim.lsp.buf.definition, opts)
-            vim.keymap.set("n", "K", vim.lsp.buf.hover, opts)
+      callback = function(ev)
+         -- TODO: avoid user config conflict?
+         if ev.file:find(Config.init) then
+            setup_lua_ls(ev.buf)
+            vim.bo[ev.buf].omnifunc = "v:lua.vim.lsp.omnifunc"
+            local opts = { buffer = ev.buf }
+            vim.keymap.set("n", "gd", lsp.buf.definition, opts)
+            vim.keymap.set("n", "K", lsp.buf.hover, opts)
+            vim.lsp.completion.enable(true, state.client_id, ev.buf, { autotrigger = true })
          end
+      end,
+   })
+
+   api.nvim_create_autocmd("FileType", {
+      pattern = "markdown",
+      callback = function(ev)
+         pcall(vim.treesitter.start, ev.buf, "markdown")
+         -- TODO: otter's id??
+         -- vim.lsp.completion.enable(true, state.client_id, ev.buf, { autotrigger = true })
       end,
    })
 
    api.nvim_create_autocmd("BufEnter", {
       pattern = Config.init,
       callback = function(arg)
+         snippet_add("cb", "```${1:language}\n$2\n```", { buffer = arg.buf })
+         snippet_add("c", "`$1`$2", { buffer = arg.buf })
          attach_otter()
          -- vim.bo.omnifunc = "v:lua.complete_markdown_headers"
          vim.wo.spell = false
@@ -1061,8 +1056,8 @@ if not vim.g.lit_loaded and #api.nvim_list_uis() ~= 0 then
 
    api.nvim_create_autocmd("BufWritePost", {
       pattern = Config.init,
-      callback = function(args)
-         local str = table.concat(api.nvim_buf_get_lines(args.buf, 0, -1, false), "\n")
+      callback = function(ev)
+         local str = table.concat(api.nvim_buf_get_lines(ev.buf, 0, -1, false), "\n")
          Packages = tangle(str)
          local conform_ok, conform = pcall(require, "conform")
          if conform_ok then
@@ -1073,13 +1068,14 @@ if not vim.g.lit_loaded and #api.nvim_list_uis() ~= 0 then
 
    lock_load()
    exe_op("resolve", resolve, diff_gather(), true)
-   exe_op("install", clone, vim.tbl_filter(Filter.to_install, Deps), true, make_sure_parser)
+   exe_op("install", clone, vim.tbl_filter(Filter.to_install, Deps), true)
    pcall(vim.cmd.packadd, "lzn-auto-require")
 
    local ok, lzn_auto = pcall(require, "lzn-auto-require")
    if ok then
       lzn_auto.enable()
    end
+
    vim.g.lit_loaded = true
 end
 
