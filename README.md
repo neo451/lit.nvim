@@ -153,7 +153,7 @@ require"oil".setup{}
 .g.localmapleader: " "
 .laststatus: 3
 .wrap: true
-.signcolumn: "yes:1"
+.signcolumn: "yes"
 ---
 ```
 
@@ -180,13 +180,14 @@ require"oil".setup{}
   - [x] edit
   - [x] build
   - [x] resolve
-- [ ] embedded lua editing
+- [ ] editing
   - [x] lsp -> otter.nvim
   - [x] formatter -> conform.nvim
   - [ ] completion
 - [ ] cool to have
-  - [x] plugin url in any heading level -> for organization
-  - [ ] native snippets for code blocks like org mode, see NativeVim
+  - [x] nice ts folds
+  - [x] plugin url in any heading level for organization
+  - [x] native snippets for code blocks -> NativeVim
   - [ ] native heading completion with activate.nvim
   - [ ] update info as diagnostic hover markdown
 

@@ -407,6 +407,7 @@ local function tangle(str)
    local grammar = Ct(header ^ -1 * desc * entry ^ 0)
 
    local pkgs = grammar:match(str)
+
    if vim.tbl_isempty(pkgs) then
       return vim.tbl_map(url2pkg, Config.dependencies)
    end
@@ -1035,6 +1036,12 @@ if not vim.g.lit_loaded and #api.nvim_list_uis() ~= 0 then
    api.nvim_create_autocmd("FileType", {
       pattern = "markdown",
       callback = function(ev)
+         vim.wo.foldmethod = "expr"
+         vim.wo.foldlevel = 99
+         vim.wo.foldexpr = "v:lua.vim.treesitter.foldexpr()"
+         vim.wo.foldtext = ""
+         vim.opt.fillchars = "foldopen:,foldclose:,fold: ,foldsep: "
+
          pcall(vim.treesitter.start, ev.buf, "markdown")
          -- TODO: otter's id??
          -- vim.lsp.completion.enable(true, state.client_id, ev.buf, { autotrigger = true })
