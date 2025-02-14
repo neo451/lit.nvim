@@ -10,7 +10,7 @@ local P, C, Ct = lpeg.P, lpeg.C, lpeg.Ct
 ---@field name string
 ---@field url string
 ---@field dir string
----@field config string
+---@field config { type: "lua" | "vim", code: string }[] | boolean
 ---@field status lit.status
 ---@field build string
 ---@field cmd string
@@ -132,6 +132,30 @@ local function create_split(lines)
    return { buf = buf, win = win }
 end
 
+---@param name string
+---@return string
+local function normname(name)
+   local ret = name:lower():gsub("^n?vim%-", ""):gsub("%.n?vim$", ""):gsub("[%.%-]lua", "")
+   -- :gsub("[^a-z]+", "")
+   return ret
+end
+
+---@param pkg lit.pkg
+local function get_main(pkg)
+   if pkg.name ~= "mini.nvim" and pkg.name:match("^mini%..*$") then
+      return pkg.name
+   end
+   local norm_name = normname(pkg.name)
+   ---@type string[]
+   for name in fs.dir(fs.joinpath(pkg.dir, "lua"), { depth = 10 }) do
+      local modname = name:gsub("%.lua", ""):gsub("/", ".")
+      local norm_mod = normname(modname)
+      if norm_mod == norm_name then
+         return norm_mod
+      end
+   end
+end
+
 ---@param dir string
 ---@return boolean
 local function rmdir(dir)
@@ -151,10 +175,12 @@ end
 ---@param result "ok" | "err" | "nop"
 ---@param n integer?
 ---@param total integer?
-local function report(name, msg_op, result, n, total)
+---@param info string
+local function report(name, msg_op, result, n, total, info)
    local count = n and string.format(" [%d/%d]", n, total) or ""
+   info = info or ""
    vim.notify(
-      string.format(" Lit:%s %s %s", count, msg_op[result], name),
+      string.format(" Lit:%s %s %s %s", count, msg_op[result], name, info),
       result == "err" and vim.log.levels.ERROR or vim.log.levels.INFO
    )
 end
@@ -171,20 +197,48 @@ local function is_opt(attrs)
    return false
 end
 
----runs the config code block
----@param pkg lit.pkg
-local function exec_config(pkg)
-   local ok, res = pcall(load, pkg.config, "lit_" .. pkg.name)
-   if ok and res then
-      setfenv(res, _G)
-      local cb_ok, err = pcall(res)
-      if not cb_ok then
-         report(pkg.name, Messages.load, "err")
-         log_err(pkg, err, "load")
+local runners
+
+runners = {
+   vim = function(code, pkg)
+      local ok, err = pcall(vim.api.nvim_exec2, code, {})
+      if not ok then
+         report(pkg.name, Messages.load, "err", nil, nil, err)
       end
-   else
-      report(pkg.name, Messages.load, "err")
-      log_err(pkg, res, "load")
+   end,
+   lua = function(code, pkg)
+      local ok, res = pcall(load, code, "lit_" .. pkg.name)
+      if ok and res then
+         setfenv(res, _G)
+         local f_ok, err = pcall(res)
+         if not f_ok then
+            report(pkg.name, Messages.load, "err", nil, nil, err)
+         end
+      else
+         report(pkg.name, Messages.load, "err", nil, nil, res)
+      end
+   end,
+   fennel = function(code, pkg)
+      local ok, fennel = pcall(require, "fennel")
+      assert(ok, "no fennel compiler found")
+      local lua_code = fennel.compileString(code)
+      runners.lua(lua_code, pkg)
+   end,
+}
+
+---@param pkg lit.pkg
+local function run_config(pkg)
+   local config = pkg.config
+   if not config then
+      return
+   end
+   if type(config) == "boolean" then
+      local modname = get_main(pkg)
+      require(modname).setup({})
+   elseif type(config) == "table" and vim.islist(config) then
+      for _, chunk in ipairs(config) do
+         runners[chunk.type](chunk.code, pkg)
+      end
    end
 end
 
@@ -362,20 +416,13 @@ local function tangle(str)
       end
       local ret = url2pkg(url, is_opt(attrs))
       local chunks = { ... }
-
-      for _, chunk in ipairs(chunks) do
-         if chunk.type == "lua" then
-            ret.config = chunk.code
-         elseif chunk.type == "vim" or chunk.type == "bash" then
-            ret.build = chunk.code
-         end
+      if not vim.tbl_isempty(chunks) then
+         ret.config = chunks
       end
-
       return vim.tbl_extend("keep", ret, attrs)
    end
 
    local function parse_header(header_str)
-      local ret = { o = {}, g = {} }
       for line in vim.gsplit(header_str, "\n") do
          local k, v = line:match("([^:]+):%s*(.*)")
          if k and v then
@@ -396,7 +443,7 @@ local function tangle(str)
    local nl = P("\n")
    local heading = (P("#") ^ 1) * C((1 - nl) ^ 0) / vim.trim
    local ticks = P("```")
-   local lang = C(P("lua") + P("vim") + P("bash"))
+   local lang = C(P("lua") + P("vim") + P("bash") + P("fennel"))
    local code = C((1 - ticks) ^ 0) / vim.trim
    local code_block = ticks * lang * nl * code / parse_code_block * ticks * nl ^ 0
    local desc = C((1 - (ticks + heading)) ^ 0) / parse_spec
@@ -415,8 +462,8 @@ local function tangle(str)
    local ret = {}
    for _, pkg in ipairs(pkgs) do
       if pkg.name then
-         ret[pkg.as or pkg.name] = pkg
-         Order[#Order + 1] = pkg.as or pkg.name
+         ret[pkg.name] = pkg
+         Order[#Order + 1] = pkg.name
       end
    end
 
@@ -464,7 +511,7 @@ local function load_config(pkg)
          enabled = pkg.enabled,
          event = pkg.event,
          after = pkg.config and function()
-            exec_config(pkg)
+            run_config(pkg)
          end or nil,
       })
    else
@@ -714,6 +761,16 @@ M.build = {
       return vim.tbl_map(get_name, vim.tbl_filter(Filter.has_build, Packages))
    end,
 }
+
+M.open = {
+   impl = function(name)
+      vim.cmd("e " .. Packages[name].dir)
+   end,
+   complete = function()
+      return vim.tbl_map(get_name, vim.tbl_filter(Filter.installed, Packages))
+   end,
+}
+
 -- Removes packages found on |M-dir| that aren't listed in your
 -- configuration.
 function M.clean()
@@ -937,12 +994,17 @@ local function setup_lua_ls(buf)
                runtime = {
                   version = "LuaJIT",
                },
+               diagnositics = {
+                  globals = { "vim" },
+               },
                -- Make the server aware of Neovim runtime files
                workspace = {
                   checkThirdParty = false,
                   library = {
-                     vim.env.VIMRUNTIME,
-                     "${3rd}/luv/library",
+                     [vim.fn.expand("$VIMRUNTIME/lua")] = true,
+                     [vim.fn.expand("$VIMRUNTIME/lua/vim/lsp")] = true,
+                     -- vim.env.VIMRUNTIME,
+                     -- "${3rd}/luv/library",
                   },
                   -- or pull in all of 'runtimepath'. NOTE: this is a lot slower
                   -- library = vim.api.nvim_get_runtime_file("", true)
@@ -963,12 +1025,11 @@ local function setup_lua_ls(buf)
    end
 end
 
+---Refer to <https://microsoft.github.io/language-server-protocol/specification/#snippet_syntax>
+---for the specification of valid body.
 ---@param trigger string trigger string for snippet
 ---@param body string snippet text that will be expanded
 ---@param opts? vim.keymap.set.Opts
----
----Refer to <https://microsoft.github.io/language-server-protocol/specification/#snippet_syntax>
----for the specification of valid body.
 local function snippet_add(trigger, body, opts)
    vim.keymap.set("ia", trigger, function()
       -- If abbrev is expanded with keys like "(", ")", "<cr>", "<space>",
@@ -982,9 +1043,13 @@ local function snippet_add(trigger, body, opts)
    end, opts)
 end
 
--- see after/ftplugin/lua.lua for examples
-
 if not vim.g.lit_loaded and #api.nvim_list_uis() ~= 0 then
+   local lib_path = {
+      vim.fs.joinpath(vim.fs.normalize("~"), ".luarocks", "share", "lua", "5.1", "?.lua"),
+      vim.fs.joinpath(vim.fs.normalize("~"), ".luarocks", "share", "lua", "5.1", "?", "init.lua"),
+   }
+   package.path = package.path .. ";" .. table.concat(lib_path, ";")
+
    vim.tbl_deep_extend("force", Config, vim.g.lit or {})
    Packages = tangle(read_file(Config.init))
 
@@ -1033,32 +1098,25 @@ if not vim.g.lit_loaded and #api.nvim_list_uis() ~= 0 then
       end,
    })
 
-   api.nvim_create_autocmd("FileType", {
-      pattern = "markdown",
+   api.nvim_create_autocmd("BufEnter", {
+      pattern = Config.init,
       callback = function(ev)
+         pcall(vim.treesitter.start, ev.buf, "markdown")
+         snippet_add("cb", "```${1:language}\n$2\n```", { buffer = ev.buf })
+         snippet_add("c", "`$1`$2", { buffer = ev.buf })
+         attach_otter()
+         -- vim.bo.omnifunc = "v:lua.complete_markdown_headers"
+         vim.wo.spell = false
+         vim.keymap.set("n", "<enter>", eval_block, { buffer = ev.buf })
+         vim.keymap.set("n", "gx", open_url, { buffer = ev.buf })
          vim.wo.foldmethod = "expr"
          vim.wo.foldlevel = 99
          vim.wo.foldexpr = "v:lua.vim.treesitter.foldexpr()"
          vim.wo.foldtext = ""
-         vim.opt.fillchars = "foldopen:,foldclose:,fold: ,foldsep: "
-
-         pcall(vim.treesitter.start, ev.buf, "markdown")
-         -- TODO: otter's id??
-         -- vim.lsp.completion.enable(true, state.client_id, ev.buf, { autotrigger = true })
+         vim.wo.fillchars = "foldopen:,foldclose:,fold: ,foldsep: "
       end,
-   })
-
-   api.nvim_create_autocmd("BufEnter", {
-      pattern = Config.init,
-      callback = function(arg)
-         snippet_add("cb", "```${1:language}\n$2\n```", { buffer = arg.buf })
-         snippet_add("c", "`$1`$2", { buffer = arg.buf })
-         attach_otter()
-         -- vim.bo.omnifunc = "v:lua.complete_markdown_headers"
-         vim.wo.spell = false
-         vim.keymap.set("n", "<enter>", eval_block, { buffer = arg.buf })
-         vim.keymap.set("n", "gx", open_url, { buffer = arg.buf })
-      end,
+      -- TODO: otter's id??
+      -- vim.lsp.completion.enable(true, state.client_id, ev.buf, { autotrigger = true })
    })
 
    api.nvim_create_autocmd("BufWritePost", {

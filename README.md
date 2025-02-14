@@ -92,23 +92,7 @@ Write your config in markdown in `.config/nvim/init.md`:
 ## nvim-telescope/telescope.nvim
 ```
 
-2. build steps -> `vim` and `bash` code blocks
-
-````markdown
-# nvim-treesitter/nvim-treesitter
-
-```vim
-:TSUpdate
-```
-
-# saghen/blink.cmp
-
-```bash
-cargo build --release
-```
-````
-
-3. plugin config -> `lua` code blocks
+2. plugin config -> `lua` code blocks
 
 ````markdown
 # stevearc/oil.nvim
@@ -118,12 +102,23 @@ require"oil".setup{}
 ```
 ````
 
-4. plugin spec -> list items
+3. plugin spec -> list items
 
-- if something is a dependency/library, use `opt` flag
-- For supported fields, see documentation for [lz.n](https://github.com/nvim-neorocks/lz.n?tab=readme-ov-file#plugin-spec)
+- Use `build` field for build setups
+  - if starts with `:` -> vim cmd
+  - else -> shell command
+- If something is a dependency/library, use `opt` flag
+- For other supported fields, see documentation for [lz.n](https://github.com/nvim-neorocks/lz.n?tab=readme-ov-file#plugin-spec)
 
 ```markdown
+# nvim-treesitter/nvim-treesitter
+
+- build: `:TSUpdate`
+
+# saghen/blink.cmp
+
+- build: `cargo build --release`
+
 # nvim-lua/plenary.nvim
 
 - opt: `true`
@@ -142,7 +137,7 @@ require"oil".setup{}
 - keys: `{ { "<leader>gg", "<cmd>Neogit<cr>" } }`
 ```
 
-5. options and vars -> yaml header
+4. options and vars -> yaml header
 
 - `.x` for `vim.o.x`
 - `.g.x` for `vim.g.x`
@@ -159,9 +154,10 @@ require"oil".setup{}
 
 ## Todos
 
-- [x] tangle
-- [x] config blocks
-- [x] build blocks
+- [x] parser and code runner
+  - [x] config blocks
+  - [x] multiple blocks
+  - [x] extensible for languages
 - [ ] config syntax
   - [x] YAML header as vim.o / vim.g
   - [x] lazy loading with lz.n
@@ -185,7 +181,8 @@ require"oil".setup{}
   - [x] formatter -> conform.nvim
   - [ ] completion
 - [ ] cool to have
-  - [x] nice ts folds
+  - [ ] nice ts folds
+    - [ ] fold yaml header
   - [x] plugin url in any heading level for organization
   - [x] native snippets for code blocks -> NativeVim
   - [ ] native heading completion with activate.nvim
@@ -196,3 +193,7 @@ require"oil".setup{}
 - [paq-nvim](https://github.com/savq/paq-nvim) for all the plugin management logic
 - [LitLua](https://github.com/jwtly10/litlua) for the idea for a literate config
 - [lz.n](https://github.com/nvim-neorocks/lz.n) for handling lazy loading
+
+```
+
+```

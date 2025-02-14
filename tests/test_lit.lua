@@ -14,9 +14,7 @@ any documentation here
 
 any text here
 
-```vim
-:TSUpdate
-```
+- build: `:TSUpdate`
 
 ```lua
 require 'nvim-treesitter.configs'.setup {}
@@ -25,10 +23,7 @@ require 'nvim-treesitter.configs'.setup {}
 # saghen/blink.cmp
 
 - event: `InsertEnter`
-
-```bash
-cargo build --release
-```
+- build: `cargo build --release`
 
 ```lua
 require"blink.cmp".setup {
@@ -69,7 +64,15 @@ require"blink.cmp".setup {
    }
 ```
 
-# nvim-lua/plenary.nvim
+# stevearc/oil.nvim
+
+```vim
+nmap - <cmd>Oil<cr>
+```
+
+```fennel
+(+ 1 1)
+```
 ]]
 
 T["tangle"] = MiniTest.new_set()
@@ -77,7 +80,10 @@ T["tangle"] = MiniTest.new_set()
 T["tangle"]["headings and codeblocks"] = function()
    local res = M._tangle(src)
    eq(":TSUpdate", res["nvim-treesitter"].build)
-   eq("require 'nvim-treesitter.configs'.setup {}", res["nvim-treesitter"].config)
+   eq("require 'nvim-treesitter.configs'.setup {}", res["nvim-treesitter"].config[1].code)
+   eq("nmap - <cmd>Oil<cr>", res["oil.nvim"].config[1].code)
+   eq("vim", res["oil.nvim"].config[1].type)
+   eq("fennel", res["oil.nvim"].config[2].type)
    eq("https://github.com/nvim-treesitter/nvim-treesitter.git", res["nvim-treesitter"].url)
    eq("nvim-treesitter", res["nvim-treesitter"].name)
    eq("cargo build --release", res["blink.cmp"].build)

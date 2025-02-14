@@ -198,9 +198,7 @@ require("which-key").setup({
 
 ## nvim-telescope/telescope-fzf-native.nvim
 
-```bash
-make
-```
+- build: `make`
 
 ## nvim-telescope/telescope.nvim
 
@@ -300,9 +298,7 @@ require("luasnip.loaders.from_vscode").lazy_load()
 
 ## L3MON4D3/LuaSnip
 
-```bash
-make install_jsregexp
-```
+- build: `make install_jsregexp`
 
 ## saadparwaiz1/cmp_luasnip
 
@@ -747,9 +743,7 @@ require("conform").setup({
 
 # nvim-treesitter/nvim-treesitter
 
-```vim
-:TSUpdate
-```
+- build: `:TSUpdate`
 
 ```lua
 require("nvim-treesitter.configs").setup({
