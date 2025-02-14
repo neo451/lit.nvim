@@ -1,7 +1,10 @@
 local M = {}
 
-local uv, api, json, lpeg, fs, fn, lsp = vim.uv, vim.api, vim.json, vim.lpeg, vim.fs, vim.fn, vim.lsp
+local uv, api, json, lpeg, fs, fn, lsp, treesitter =
+   vim.uv, vim.api, vim.json, vim.lpeg, vim.fs, vim.fn, vim.lsp, vim.treesitter
 local P, C, Ct = lpeg.P, lpeg.C, lpeg.Ct
+
+---@alias lit.chunk { type: "lua" | "vim", code: string }
 
 ---@class lit.pkg
 ---@field branch string
@@ -10,7 +13,7 @@ local P, C, Ct = lpeg.P, lpeg.C, lpeg.Ct
 ---@field name string
 ---@field url string
 ---@field dir string
----@field config { type: "lua" | "vim", code: string }[] | boolean
+---@field config chunk[] | boolean FIXME: merge?
 ---@field status lit.status
 ---@field build string
 ---@field cmd string
@@ -66,6 +69,9 @@ local Status = {
 }
 
 local StatusL = {}
+local Lock = {} -- Table of pgks loaded from the lockfile
+local Packages = {} -- Table of pkgs loaded from the init.md
+local Order = {}
 
 for k, v in pairs(Status) do
    StatusL[v] = k
@@ -135,7 +141,7 @@ end
 ---@param name string
 ---@return string
 local function normname(name)
-   local ret = name:lower():gsub("^n?vim%-", ""):gsub("%.n?vim$", ""):gsub("[%.%-]lua", "")
+   local ret = name:lower():gsub("^n?vim%-", ""):gsub("%.n?vim$", ""):gsub("[%.%-]lua", ""):gsub("%-n?vim$", "")
    -- :gsub("[^a-z]+", "")
    return ret
 end
@@ -171,18 +177,22 @@ local function log_err(pkg, err, op)
 end
 
 ---@param name string
----@param msg_op lit.message
+---@param op lit.op
 ---@param result "ok" | "err" | "nop"
 ---@param n integer?
 ---@param total integer?
 ---@param info string
-local function report(name, msg_op, result, n, total, info)
+local function report(name, op, result, n, total, info)
    local count = n and string.format(" [%d/%d]", n, total) or ""
+   local msg_op = Messages[op]
    info = info or ""
    vim.notify(
       string.format(" Lit:%s %s %s %s", count, msg_op[result], name, info),
       result == "err" and vim.log.levels.ERROR or vim.log.levels.INFO
    )
+   if result == "err" then
+      log_err(Packages[name], err) -- TDOO: refactor and pass in type of op
+   end
 end
 
 ---@param attrs table<string, any>
@@ -201,21 +211,23 @@ local runners
 
 runners = {
    vim = function(code, pkg)
+      pkg = pkg or { name = "nvim" }
       local ok, err = pcall(vim.api.nvim_exec2, code, {})
       if not ok then
-         report(pkg.name, Messages.load, "err", nil, nil, err)
+         report(pkg.name, "load", "err", nil, nil, err)
       end
    end,
    lua = function(code, pkg)
+      pkg = pkg or { name = "nvim" }
       local ok, res = pcall(load, code, "lit_" .. pkg.name)
       if ok and res then
          setfenv(res, _G)
          local f_ok, err = pcall(res)
          if not f_ok then
-            report(pkg.name, Messages.load, "err", nil, nil, err)
+            report(pkg.name, "load", "err", nil, nil, err)
          end
       else
-         report(pkg.name, Messages.load, "err", nil, nil, res)
+         report(pkg.name, "load", "err", nil, nil, res)
       end
    end,
    fennel = function(code, pkg)
@@ -264,10 +276,10 @@ local function new_counter(total, callback)
    return coroutine.wrap(function()
       local c = { ok = 0, err = 0, nop = 0 }
       while c.ok + c.err + c.nop < total do
-         local name, msg_op, result = coroutine.yield(true)
+         local name, msg_op, result, err = coroutine.yield(true)
          c[result] = c[result] + 1
          if result ~= "nop" or Config.verbose then
-            report(name, msg_op, result, c.ok + c.nop, total)
+            report(name, msg_op, result, c.ok + c.nop, total, err)
          end
       end
       callback(c.ok, c.err, c.nop)
@@ -294,9 +306,6 @@ local function url2pkg(url, opt)
    }
 end
 
-local Lock = {} -- Table of pgks loaded from the lockfile
-local Packages = {} -- Table of pkgs loaded from the init.md
-local Order = {}
 local Deps = vim.tbl_map(url2pkg, Config.dependencies)
 
 ---@return lit.pkg
@@ -526,13 +535,20 @@ local function build(pkg)
    local cmd = pkg.build
    if cmd:sub(1, 1) == ":" then
       ---@diagnostic disable-next-line: param-type-mismatch
-      local ok = pcall(vim.cmd, cmd)
-      report(pkg.name, Messages.build, ok and "ok" or "err")
+      local ok, err = pcall(vim.cmd, cmd)
+      report(pkg.name, "build", ok and "ok" or "err", err)
    else
       fn.jobstart(pkg.build, {
          cwd = pkg.dir,
          on_exit = function(_, code)
-            report(pkg.name, Messages.build, code == 0 and "ok" or "err")
+            report(
+               pkg.name,
+               "build",
+               code == 0 and "ok" or "err",
+               nil,
+               nil,
+               "failed to run shell command, err code:" .. code
+            )
          end,
       })
    end
@@ -562,7 +578,7 @@ local function clone(pkg, counter, build_queue)
             log_err(pkg, obj.stderr, "clone")
             rmdir(pkg.dir)
          end
-         counter(pkg.name, Messages.install, ok and "ok" or "err")
+         counter(pkg.name, "install", ok and "ok" or "err")
       end)
    )
 end
@@ -577,7 +593,7 @@ local function pull(pkg, counter, build_queue)
       { cwd = pkg.dir },
       vim.schedule_wrap(function(obj)
          if obj.code ~= 0 then
-            counter(pkg.name, Messages.update, "err")
+            counter(pkg.name, "update", "err")
             log_err(pkg, obj.stderr, "update")
             return
          end
@@ -586,12 +602,12 @@ local function pull(pkg, counter, build_queue)
             log_update_changes(pkg, prev_hash, cur_hash)
             pkg.status, pkg.hash = Status.UPDATED, cur_hash
             lock_write()
-            counter(pkg.name, Messages.update, "ok")
+            counter(pkg.name, "update", "ok")
             if pkg.build then
                table.insert(build_queue, pkg)
             end
          else
-            counter(pkg.name, Messages.update, "nop")
+            counter(pkg.name, "update", "nop")
          end
       end)
    )
@@ -613,7 +629,7 @@ end
 local function remove(pkg, counter)
    local ok, err = pcall(rmdir, pkg.dir)
    if ok then
-      counter(pkg.name, Messages.remove, "ok")
+      counter(pkg.name, "remove", "ok")
       Packages[pkg.name] = { name = pkg.name, status = Status.REMOVED }
    else
       if err then
@@ -912,44 +928,58 @@ function M._get_dependencies(pkg)
    end
 end
 
+--- from carrot.nvim
 local function get_code_block()
-   local cursor_pos = api.nvim_win_get_cursor(0)
-   local current_line = cursor_pos[1] -- 1-based index
+   local parser = treesitter.get_parser(0)
+   assert(parser, "Treesitter not enabled in current buffer!")
+   local tree = parser:parse()
+   assert(tree and #tree > 0, "Parsing current buffer failed!")
 
-   -- Search backward for opening ```
-   local start_line = current_line - 1
-   while start_line >= 0 do
-      local line = api.nvim_buf_get_lines(0, start_line, start_line + 1, true)[1]
-      if line:match("^```") then
-         break
+   tree = tree[1]
+   local root = tree:root()
+
+   local row, col = unpack(api.nvim_win_get_cursor(0))
+   local code_node = root:descendant_for_range(row - 1, col, row - 1, col)
+
+   while code_node and code_node:type() ~= "fenced_code_block" do
+      code_node = code_node:parent()
+   end
+
+   if not code_node or code_node:type() ~= "fenced_code_block" then
+      return
+   end
+
+   local ts_query = [[
+      (fenced_code_block 
+        (info_string (language) @lang) 
+        (code_fence_content) @content) @block
+    ]]
+
+   local query
+   if treesitter.query and treesitter.query.parse then
+      query = treesitter.query.parse("markdown", ts_query)
+   else
+      query = treesitter.parse_query("markdown", ts_query)
+   end
+
+   local lang, code
+   for id, node in query:iter_captures(code_node, 0) do
+      local name = query.captures[id]
+      if name == "lang" then
+         lang = treesitter.get_node_text(node, 0)
+      elseif name == "content" then
+         code = treesitter.get_node_text(node, 0)
       end
-      start_line = start_line - 1
    end
-
-   -- Search forward for closing ```
-   local end_line = current_line - 1
-   local total_lines = api.nvim_buf_line_count(0)
-   while end_line < total_lines do
-      local line = api.nvim_buf_get_lines(0, end_line, end_line + 1, true)[1]
-      if line:match("^```") then
-         break
-      end
-      end_line = end_line + 1
-   end
-
-   -- Validate code block boundaries
-   if start_line < 0 or end_line >= total_lines or start_line >= end_line then
-      return ""
-   end
-
-   -- Extract content between code block markers
-   local code_lines = api.nvim_buf_get_lines(0, start_line + 1, end_line, true)
-
-   return table.concat(code_lines, "\n")
+   return lang, code
 end
 
 local function eval_block()
-   load(get_code_block())()
+   local lang, code = get_code_block()
+   if not lang then
+      return
+   end
+   runners[lang](code, nil)
 end
 
 ---@return boolean
@@ -959,7 +989,7 @@ end
 
 local function open_url()
    local url = fn.expand("<cfile>")
-   return is_short(url) and vim.ui.open("https://github.com/" .. url)
+   return is_short(url) and vim.ui.open("https://github.com/" .. url) or vim.ui.open(url)
 end
 
 local state = {
@@ -1101,7 +1131,7 @@ if not vim.g.lit_loaded and #api.nvim_list_uis() ~= 0 then
    api.nvim_create_autocmd("BufEnter", {
       pattern = Config.init,
       callback = function(ev)
-         pcall(vim.treesitter.start, ev.buf, "markdown")
+         pcall(treesitter.start, ev.buf, "markdown")
          snippet_add("cb", "```${1:language}\n$2\n```", { buffer = ev.buf })
          snippet_add("c", "`$1`$2", { buffer = ev.buf })
          attach_otter()

@@ -1,5 +1,7 @@
 ---
 .g.mapleader: " "
+.number: true
+.relativenumber: true
 ---
 
 # nvim-treesitter/nvim-treesitter
@@ -19,7 +21,7 @@
 # folke/tokyonight.nvim
 
 ```fennel
-(vim.cmd.colorscheme :tokyonight)
+(vim.cmd.colorscheme :tokyonight-storm)
 ```
 
 # nvim-lua/plenary.nvim
