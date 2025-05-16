@@ -1,4 +1,4 @@
-local M = require("lit")
+local M = require("lit.tangle")
 
 local T = MiniTest.new_set()
 local eq = MiniTest.expect.equality
@@ -77,8 +77,8 @@ nmap - <cmd>Oil<cr>
 
 T["tangle"] = MiniTest.new_set()
 
-T["tangle"]["headings and codeblocks"] = function()
-   local res = M._tangle(src)
+T["tangle"]["return a map of headings and codeblocks"] = function()
+   local res = M.parse(src)
    eq(":TSUpdate", res["nvim-treesitter"].build)
    eq("require 'nvim-treesitter.configs'.setup {}", res["nvim-treesitter"].config[1].code)
    eq("nmap - <cmd>Oil<cr>", res["oil.nvim"].config[1].code)
@@ -90,9 +90,12 @@ T["tangle"]["headings and codeblocks"] = function()
    eq("InsertEnter", res["blink.cmp"].event)
 end
 
-local header = [[
-.number: true
-]]
+T["tangle"]["return the order of the modules written"] = function()
+   local _, res = M.parse(src)
+   eq("nvim-treesitter", res[1])
+   eq("blink.cmp", res[2])
+   eq("oil.nvim", res[3])
+end
 
 local spec_str = [[
 - ft: `lua`
@@ -103,7 +106,8 @@ local spec_str = [[
 ]]
 
 T["tangle"]["spec in paragraphs before code block"] = function()
-   local spec = M._parse_spec(spec_str)
+   local spec = M.parse_spec(spec_str)
+   assert(spec)
    eq(spec.ft, "lua")
    eq(spec.keys, { { "<leader>gg", "<cmd>Neogit<cr>" }, "<leader>H", "<C-MR>", "gd", "K" })
    eq(spec.lazy, true)

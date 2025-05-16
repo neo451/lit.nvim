@@ -1,0 +1,37 @@
+---@alias lit.op
+---| "install"
+---| "update"
+---| "sync"
+---| "remove"
+---| "build"
+---| "resolve"
+---| "edit"
+---| "log"
+---| "load"
+
+---@class lit.chunk
+---@field type "lua" | "vim" | "fennel" | "moonscript"
+---@field code string
+
+---@class lit.pkg
+---@field branch string
+---@field pin boolean
+---@field hash string
+---@field name string
+---@field url string
+---@field dir string
+---@field config lit.chunk[] | boolean FIXME: merge?
+---@field status integer
+---@field build string
+---@field cmd string
+---@field colorscheme string
+---@field keys string | string[] | table[] |
+---@field ft string
+---@field event string
+---@field lazy boolean
+---@field enabled boolean
+---@field priority integer
+---@field loaded boolean
+---@field as string
+
+---@alias lit.packages table<string, lit.pkg>
