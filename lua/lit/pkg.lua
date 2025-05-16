@@ -1,10 +1,13 @@
 local M = {}
 
-local fs, fn = vim.fs, vim.fn
+local fs, fn, uv = vim.fs, vim.fn, vim.uv
 local Status = require("lit.status")
 local runners = require("lit.runners")
 local log = require("lit.log")
+local lock = require("lit.lock")
 local Config = require("lit.config")
+local Git = require("lit.manager.git")
+local Filter = require("lit.filter")
 
 ---@param name string
 ---@return string
@@ -46,20 +49,6 @@ local function run_config(pkg)
    end
 end
 
--- stylua: ignore start
----@type table<string, fun(p: lit.pkg): boolean>
-local Filter = {
-   installed = function(p) return p.status ~= Status.REMOVED and p.status ~= Status.TO_INSTALL end,
-   not_removed = function(p) return p.status ~= Status.REMOVED end,
-   removed = function(p) return p.status == Status.REMOVED end,
-   to_install = function(p) return p.status == Status.TO_INSTALL end,
-   to_update = function(p) return p.status ~= Status.REMOVED and p.status ~= Status.TO_INSTALL and not p.pin end,
-   to_move = function(p) return p.status == Status.TO_MOVE end,
-   to_reclone = function(p) return p.status == Status.TO_RECLONE end,
-   has_build = function(p) return p.build ~= nil end,
-}
--- stylua: ignore end
-
 ---@param attrs table<string, any>
 ---@return boolean
 function M.is_opt(attrs)
@@ -70,31 +59,6 @@ function M.is_opt(attrs)
       end
    end
    return false
-end
-
----Gather the difference between lock and packages
----
----@param Packages table<string, lit.pkg>
----@param Lock table<string, lit.pkg>
----@return lit.pkg[]
-function M.diff_gather(Packages, Lock)
-   local diffs = {}
-   for name, lock_pkg in pairs(Lock) do
-      local pack_pkg = Packages[name]
-      if pack_pkg and Filter.not_removed(lock_pkg) then
-         for k, v in pairs({
-            dir = Status.TO_MOVE,
-            branch = Status.TO_RECLONE,
-            url = Status.TO_RECLONE,
-         }) do
-            if lock_pkg[k] ~= pack_pkg[k] then
-               lock_pkg.status = v
-               table.insert(diffs, lock_pkg)
-            end
-         end
-      end
-   end
-   return diffs
 end
 
 ---@param pkg lit.pkg
@@ -168,5 +132,83 @@ function M.find_unlisted(Packages)
    end
    return unlisted
 end
+
+---@param pkg lit.pkg
+---@param counter function
+---@param build_queue table
+function M.clone_or_pull(pkg, counter, build_queue)
+   if Filter.to_update(pkg) then
+      Git.pull(pkg, counter, build_queue)
+   elseif Filter.to_install(pkg) then
+      Git.clone(pkg, counter, build_queue)
+   end
+end
+
+---Move package to new location.
+---
+---@param src lit.pkg
+---@param dst lit.pkg
+local function move(src, dst)
+   local ok = uv.fs_rename(src.dir, dst.dir)
+   if ok then
+      dst.status = Status.INSTALLED
+      lock.write()
+   else
+      log.err(src, "move faild!", "move")
+   end
+end
+
+---Gather the difference between lock and packages
+---
+---@param Packages lit.packages
+---@param Lock lit.packages
+---@return lit.pkg[]
+function M.diff_gather(Packages, Lock)
+   local diffs = {}
+   for name, lock_pkg in pairs(Lock) do
+      local pack_pkg = Packages[name]
+      if pack_pkg and Filter.not_removed(lock_pkg) then
+         for k, v in pairs({
+            dir = Status.TO_MOVE,
+            branch = Status.TO_RECLONE,
+            url = Status.TO_RECLONE,
+         }) do
+            if lock_pkg[k] ~= pack_pkg[k] then
+               lock_pkg.status = v
+               table.insert(diffs, lock_pkg)
+            end
+         end
+      end
+   end
+   return diffs
+end
+
+---@param pkg lit.pkg
+---@param counter function
+---@param build_queue lit.pkg[]
+---@param Packages lit.packages[]
+function M.resolve(pkg, counter, build_queue, Packages)
+   if Filter.to_move(pkg) then
+      move(pkg, Packages[pkg.name])
+   elseif Filter.to_reclone(pkg) then
+      Git.reclone(Packages[pkg.name], counter, build_queue)
+   end
+end
+
+-- TODO:
+---@param pkg lit.pkg
+---@param counter function
+-- function M.remove(pkg, counter)
+--    local ok, err = pcall(util.rmdir, pkg.dir)
+--    if ok then
+--       counter(pkg.name, "remove", "ok")
+--       Packages[pkg.name] = { name = pkg.name, status = Status.REMOVED }
+--    else
+--       if err then
+--          log.err(pkg, "failed to remove", "remove")
+--       end
+--       lock.write()
+--    end
+-- end
 
 return M

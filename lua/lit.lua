@@ -1,6 +1,6 @@
 local M = {}
 
-local uv, api, fs = vim.uv, vim.api, vim.fs
+local api = vim.api
 local Config = require("lit.config")
 local Git = require("lit.manager.git")
 local Status = require("lit.status")
@@ -10,6 +10,7 @@ local log = require("lit.log")
 local lock = require("lit.lock")
 local tangle = require("lit.tangle")
 local actions = require("lit.actions") -- TODO: in config
+local Filter = require("lit.filter")
 
 local StatusL = {}
 local Packages = {} -- Table of pkgs loaded from the init.md
@@ -19,21 +20,7 @@ for k, v in pairs(Status) do
    StatusL[v] = k
 end
 
--- stylua: ignore start
----@type table<string, fun(p: lit.pkg): boolean>
-local Filter = {
-   installed = function(p) return p.status ~= Status.REMOVED and p.status ~= Status.TO_INSTALL end,
-   not_removed = function(p) return p.status ~= Status.REMOVED end,
-   removed = function(p) return p.status == Status.REMOVED end,
-   to_install = function(p) return p.status == Status.TO_INSTALL end,
-   to_update = function(p) return p.status ~= Status.REMOVED and p.status ~= Status.TO_INSTALL and not p.pin end,
-   to_move = function(p) return p.status == Status.TO_MOVE end,
-   to_reclone = function(p) return p.status == Status.TO_RECLONE end,
-   has_build = function(p) return p.build ~= nil end,
-}
--- stylua: ignore end
-
--- -- Copy environment variables once. Doing it for every process seems overkill.
+-- Copy environment variables once. Doing it for every process seems overkill.
 -- TODO:
 -- local Env = {}
 -- for var, val in pairs(uv.os_environ()) do
@@ -57,28 +44,6 @@ local function new_counter(total, callback)
       callback(c.ok, c.err, c.nop)
       return true
    end)
-end
-
----Move package to new location.
----
----@param src lit.pkg
----@param dst lit.pkg
-local function move(src, dst)
-   local ok = uv.fs_rename(src.dir, dst.dir)
-   if ok then
-      dst.status = Status.INSTALLED
-      lock.write()
-   else
-      log.err(src, "move faild!", "move")
-   end
-end
-
-local function resolve(pkg, counter, build_queue)
-   if Filter.to_move(pkg) then
-      move(pkg, Packages[pkg.name])
-   elseif Filter.to_reclone(pkg) then
-      Git.reclone(Packages[pkg.name], counter, build_queue)
-   end
 end
 
 ---Boilerplate around operations (autocmds, counter initialization, etc.)
@@ -127,39 +92,13 @@ local function exe_op(op, f, pkgs, silent, after)
    counter() -- Initialize counter
 
    for _, pkg in pairs(pkgs) do
-      f(pkg, counter, build_queue)
+      f(pkg, counter, build_queue, Packages)
    end
 end
 
 ---@param pkg lit.pkg
 local function get_name(pkg)
    return pkg.as or pkg.name
-end
-
----@param pkg lit.pkg
----@param counter function
----@param build_queue table
-local function clone_or_pull(pkg, counter, build_queue)
-   if Filter.to_update(pkg) then
-      Git.pull(pkg, counter, build_queue)
-   elseif Filter.to_install(pkg) then
-      Git.clone(pkg, counter, build_queue)
-   end
-end
-
----@param pkg lit.pkg
----@param counter function
-local function remove(pkg, counter)
-   local ok, err = pcall(util.rmdir, pkg.dir)
-   if ok then
-      counter(pkg.name, "remove", "ok")
-      Packages[pkg.name] = { name = pkg.name, status = Status.REMOVED }
-   else
-      if err then
-         log.err(pkg, "failed to remove", "remove")
-      end
-      lock.write()
-   end
 end
 
 ---Installs all packages listed in your configuration. If a package is already
@@ -246,18 +185,19 @@ M.open = {
    end,
 }
 
+-- TODO: uninstall
 -- Removes packages found on |M-dir| that aren't listed in your
 -- configuration.
-M.clean = {
-   impl = function()
-      exe_op("remove", remove, M.find_unlisted(Packages))
-   end,
-}
+-- M.clean = {
+--    impl = function()
+--       exe_op("remove", Pkg.remove, M.find_unlisted(Packages))
+--    end,
+-- }
 
 M.sync = {
    impl = function()
       M.clean()
-      exe_op("sync", clone_or_pull, vim.tbl_filter(Filter.not_removed, Packages))
+      exe_op("sync", Pkg.clone_or_pull, vim.tbl_filter(Filter.not_removed, Packages))
    end,
 }
 
@@ -280,7 +220,7 @@ M.list = {
 
 M.log = {
    impl = function()
-      vim.cmd.e(Config.log)
+      edit(Config.log)
    end,
 }
 
@@ -427,11 +367,11 @@ local function setup_dependencies()
 end
 
 local function setup()
-   -- local lib_path = {
-   --    vim.fs.joinpath(vim.fs.normalize("~"), ".luarocks", "share", "lua", "5.1", "?.lua"),
-   --    vim.fs.joinpath(vim.fs.normalize("~"), ".luarocks", "share", "lua", "5.1", "?", "init.lua"),
-   -- }
-   -- package.path = package.path .. ";" .. table.concat(lib_path, ";")
+   local lib_path = {
+      vim.fs.joinpath(vim.fs.normalize("~"), ".luarocks", "share", "lua", "5.1", "?.lua"),
+      vim.fs.joinpath(vim.fs.normalize("~"), ".luarocks", "share", "lua", "5.1", "?", "init.lua"),
+   }
+   package.path = package.path .. ";" .. table.concat(lib_path, ";")
 
    Config = vim.tbl_deep_extend("force", Config, vim.g.lit or {})
    Packages, Order = tangle.parse(util.read_file(Config.init))
@@ -445,10 +385,10 @@ local function setup()
 
    setup_autocmds()
    setup_usercmds()
+   -- setup_dependencies()
 
    lock.load()
-   exe_op("resolve", resolve, Pkg.diff_gather(Packages, lock.lock), true)
-   -- setup_dependencies()
+   exe_op("resolve", Pkg.resolve, Pkg.diff_gather(Packages, lock.lock), true)
    vim.g.lit_loaded = true
 end
 

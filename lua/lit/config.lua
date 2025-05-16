@@ -9,8 +9,7 @@ return {
    path = fs.joinpath(fn.stdpath("data"), "site", "pack", "lit"),
    ---@diagnostic disable-next-line: param-type-mismatch
    log = fs.joinpath(fn.stdpath("log"), "lit.log"),
-   -- url_format = "https://github.com/%s.git",
-   url_format = "git@github.com:%s.git",
+   url_format = "https://github.com/%s.git",
    clone_args = { "--depth=1", "--recurse-submodules", "--filter=blob:none" },
    dependencies = {
       "neo451/lit.nvim",

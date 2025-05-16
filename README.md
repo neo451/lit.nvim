@@ -193,7 +193,3 @@ require"oil".setup{}
 - [paq-nvim](https://github.com/savq/paq-nvim) for all the plugin management logic
 - [LitLua](https://github.com/jwtly10/litlua) for the idea for a literate config
 - [lz.n](https://github.com/nvim-neorocks/lz.n) for handling lazy loading
-
-```
-
-```
