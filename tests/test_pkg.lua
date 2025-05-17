@@ -20,7 +20,7 @@ T["diff_gather"] = function()
          status = 5,
       },
    }
-   eq(diff, M.diff_gather(P, L))
+   eq(diff, M.get_diff(P, L))
 end
 
 T["is_opt"] = function()
@@ -54,6 +54,13 @@ T["is_opt"] = function()
          opt = true,
       })
    )
+end
+
+T["normname"] = function()
+   eq("neorg", M._normname("neorg"))
+   eq("lazy", M._normname("lazy.nvim"))
+   eq("sqlite", M._normname("sqlite.lua"))
+   eq("zk", M._normname("zk-nvim"))
 end
 
 return T

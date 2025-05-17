@@ -17,6 +17,8 @@ local function normname(name)
    return ret
 end
 
+M._normname = normname
+
 ---@param pkg lit.pkg
 local function get_main(pkg)
    if pkg.name ~= "mini.nvim" and pkg.name:match("^mini%..*$") then
@@ -24,7 +26,11 @@ local function get_main(pkg)
    end
    local norm_name = normname(pkg.name)
    ---@type string[]
-   for name in fs.dir(fs.joinpath(pkg.dir, "lua"), { depth = 10 }) do
+   for name in
+      fs.dir(fs.joinpath(pkg.dir, "lua"), {
+         depth = 10,
+      })
+   do
       local modname = name:gsub("%.lua", ""):gsub("/", ".")
       local norm_mod = normname(modname)
       if norm_mod == norm_name then
@@ -94,31 +100,27 @@ function M.build(pkg)
    vim.notify(" Lit: running build for " .. pkg.name)
    local cmd = pkg.build
    if cmd:sub(1, 1) == ":" then
-      ---@diagnostic disable-next-line: param-type-mismatch
-      local ok, err = pcall(vim.cmd, cmd:sub(2))
-      log.report(pkg.name, "build", ok and "ok" or "err", err)
+      local ok, err = pcall(function()
+         vim.cmd(cmd:sub(2))
+      end)
+      local result = ok and "ok" or "err"
+      log.report(pkg.name, "build", result, nil, nil, err or ("failed to run build for " .. pkg.name))
    else
       local job_opt = {
          cwd = pkg.dir,
          on_exit = function(_, code)
-            log.report(
-               pkg.name,
-               "build",
-               code == 0 and "ok" or "err",
-               nil,
-               nil,
-               "failed to run shell command, err code:" .. code
-            )
+            local result = code == 0 and "ok" or "err"
+            log.report(pkg.name, "build", result, nil, nil, "failed to run shell command, err code:" .. code)
          end,
       }
       fn.jobstart(pkg.build, job_opt)
    end
 end
 
----@param Packages lit.packages
----@return lit.pkg
-function M.find_unlisted(Packages)
+---@return lit.pkg[]
+function M.find_unlisted()
    local unlisted = {}
+   local Packages = require("lit.packages")
    for _, subdir in ipairs({ "start", "opt" }) do
       local dir = fs.joinpath(Config.path, subdir)
       for name, t in fs.dir(dir) do
@@ -137,12 +139,11 @@ end
 ---@param pkg lit.pkg
 ---@param counter function
 ---@param build_queue table
----@param Packages lit.packages
-function M.clone_or_pull(pkg, counter, build_queue, Packages)
+function M.clone_or_pull(pkg, counter, build_queue)
    if Filter.to_update(pkg) then
-      Git.pull(pkg, counter, build_queue, Packages)
+      Git.pull(pkg, counter, build_queue)
    elseif Filter.to_install(pkg) then
-      Git.clone(pkg, counter, build_queue, Packages)
+      Git.clone(pkg, counter, build_queue)
    end
 end
 
@@ -150,12 +151,11 @@ end
 ---
 ---@param src lit.pkg
 ---@param dst lit.pkg
----@param Packages lit.packages
-local function move(src, dst, Packages)
+local function move(src, dst)
    local ok = uv.fs_rename(src.dir, dst.dir)
    if ok then
       dst.status = Status.INSTALLED
-      lock.update(Packages)
+      lock.update()
    else
       log.err(src, "move faild!", "move")
    end
@@ -166,7 +166,7 @@ end
 ---@param Packages lit.packages
 ---@param Lock lit.packages
 ---@return lit.pkg[]
-function M.diff_gather(Packages, Lock)
+function M.get_diff(Packages, Lock)
    local diffs = {}
    for name, lock_pkg in pairs(Lock) do
       local pack_pkg = Packages[name]
@@ -189,10 +189,10 @@ end
 ---@param pkg lit.pkg
 ---@param counter function
 ---@param build_queue lit.pkg[]
----@param Packages lit.packages[]
-function M.resolve(pkg, counter, build_queue, Packages)
+function M.resolve(pkg, counter, build_queue)
+   local Packages = require("lit.packages")
    if Filter.to_move(pkg) then
-      move(pkg, Packages[pkg.name], Packages)
+      move(pkg, Packages[pkg.name])
    elseif Filter.to_reclone(pkg) then
       Git.reclone(Packages[pkg.name], counter, build_queue)
    end

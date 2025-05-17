@@ -26,8 +26,7 @@ end
 ---@param pkg lit.pkg
 ---@param counter function
 ---@param build_queue table
----@param Packages lit.packages
-function M.clone(pkg, counter, build_queue, Packages)
+function M.clone(pkg, counter, build_queue)
    local args = vim.list_extend({ "git", "clone", pkg.url, pkg.dir }, Config.clone_args)
    if pkg.branch then
       vim.list_extend(args, { "-b", pkg.branch })
@@ -39,7 +38,7 @@ function M.clone(pkg, counter, build_queue, Packages)
          local ok = obj.code == 0
          if ok then
             pkg.status = Status.CLONED
-            lock.update(Packages)
+            lock.update()
             if pkg.build then
                table.insert(build_queue, pkg)
             end
@@ -55,8 +54,7 @@ end
 ---@param pkg lit.pkg
 ---@param counter function
 ---@param build_queue table
----@param Packages lit.packages
-function M.pull(pkg, counter, build_queue, Packages)
+function M.pull(pkg, counter, build_queue)
    local prev_hash = Lock[pkg.name] and Lock[pkg.name].hash or pkg.hash
    vim.system(
       { "git", "pull", "--recurse-submodules", "--update-shallow" },
@@ -71,7 +69,7 @@ function M.pull(pkg, counter, build_queue, Packages)
          if cur_hash ~= prev_hash then
             log.changes(pkg, prev_hash, cur_hash)
             pkg.status, pkg.hash = Status.UPDATED, cur_hash
-            lock.update(Packages)
+            lock.update()
             counter(pkg.name, "update", "ok")
             if pkg.build then
                table.insert(build_queue, pkg)
@@ -84,11 +82,11 @@ function M.pull(pkg, counter, build_queue, Packages)
 end
 
 ---@param pkg lit.pkg
-function M.reclone(pkg, counter, build_queue, Packages)
+function M.reclone(pkg, counter, build_queue)
    local ok = util.rmdir(pkg.dir)
    -- FIXME:
    if ok then
-      M.clone(pkg, counter, build_queue, Packages)
+      M.clone(pkg, counter, build_queue)
    else
       print("falied to remove!!!")
    end

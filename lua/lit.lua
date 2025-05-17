@@ -1,5 +1,6 @@
 local M = {}
 
+-- TODO: uninstall
 local api = vim.api
 local Config = require("lit.config")
 local Git = require("lit.manager.git")
@@ -12,7 +13,7 @@ local lock = require("lit.lock")
 local tangle = require("lit.tangle")
 local actions = require("lit.actions") -- TODO: in config
 
-local Packages = {} -- Table of pkgs loaded from the init.md
+local Packages = require("lit.packages") -- Table of pkgs loaded from the init.md
 local Order = {}
 
 -- Copy environment variables once. Doing it for every process seems overkill.
@@ -87,7 +88,7 @@ local function exe_op(op, f, pkgs, silent, after)
    counter() -- Initialize counter
 
    for _, pkg in pairs(pkgs) do
-      f(pkg, counter, build_queue, Packages)
+      f(pkg, counter, build_queue)
    end
 end
 
@@ -108,7 +109,7 @@ M.install = {
       if name then
          local counter = new_counter(1, function() end)
          counter() -- Initialize counter
-         Git.clone(Packages[name], counter, {}, Packages)
+         Git.clone(Packages[name], counter, {})
       else
          exe_op("install", Git.clone, vim.tbl_filter(Filter.to_install, Packages))
       end
@@ -129,7 +130,7 @@ M.update = {
       if name then
          local counter = new_counter(1, function() end)
          counter() -- Initialize counter
-         Git.pull(Packages[name], counter, {}, Packages)
+         Git.pull(Packages[name], counter, {})
       else
          exe_op("update", Git.pull, vim.tbl_filter(Filter.to_update, Packages))
       end
@@ -145,7 +146,6 @@ M.build = {
          local pkgs = vim.tbl_filter(function(pkg)
             return Filter.has_build(pkg)
          end, Packages)
-         -- TODO: filter has build
          vim.ui.select(pkgs, {
             format_item = function(pkg)
                return pkg.name
@@ -179,15 +179,6 @@ M.open = {
       return vim.tbl_map(get_name, vim.tbl_filter(Filter.installed, Packages))
    end,
 }
-
--- TODO: uninstall
--- Removes packages found on |M-dir| that aren't listed in your
--- configuration.
--- M.clean = {
---    impl = function()
---       exe_op("remove", Pkg.remove, M.find_unlisted(Packages))
---    end,
--- }
 
 M.sync = {
    impl = function()
@@ -235,7 +226,7 @@ local function setup_usercmds()
       if not op then
          return vim.ui.select(ops, {}, function(choice)
             if M[choice] then
-               M[choice].impl() -- check arity if not enough
+               M[choice].impl() -- TODO: check arity if not enough
             end
          end)
       end
@@ -274,7 +265,34 @@ local function setup_usercmds()
    })
 end
 
+local function tbl_empty(tbl)
+   for k, _ in pairs(tbl) do
+      tbl[k] = nil
+   end
+end
+
+local function update_packages(pkgs)
+   tbl_empty(Packages)
+   for name, pkg in pairs(pkgs) do
+      Packages[name] = pkg
+   end
+end
+
 local function setup_autocmds()
+   api.nvim_create_autocmd("BufWritePost", {
+      desc = "[lit.nvim]: re-parse the package and format on save",
+      pattern = Config.init,
+      callback = function(ev)
+         local str = table.concat(api.nvim_buf_get_lines(ev.buf, 0, -1, false), "\n")
+         local pkgs = tangle.parse(str)
+         update_packages(pkgs)
+         local conform_ok, conform = pcall(require, "conform")
+         if conform_ok then
+            conform.format({ bufnr = api.nvim_get_current_buf(), formatters = { "injected" } })
+         end
+      end,
+   })
+
    api.nvim_create_autocmd("BufEnter", {
       desc = "[lit.nvim]: add actions, snnipts, fold options, attach otter",
       pattern = Config.init,
@@ -284,28 +302,16 @@ local function setup_autocmds()
          require("lit.snipptes").init(ev.buf)
          require("lit.integrations.otter_ls").init()
 
-         vim.wo.spell = false
          vim.keymap.set("n", "<enter>", actions.eval_block, { buffer = ev.buf })
          vim.keymap.set("n", "gx", actions.open_url, { buffer = ev.buf })
+
+         vim.wo.spell = false
          vim.wo.foldmethod = "expr"
          vim.wo.foldlevel = 99
          vim.wo.foldexpr = "v:lua.vim.treesitter.foldexpr()"
       end,
       -- TODO: otter's id??
       -- vim.lsp.completion.enable(true, state.client_id, ev.buf, { autotrigger = true })
-   })
-
-   api.nvim_create_autocmd("BufWritePost", {
-      desc = "[lit.nvim]: re-parse the package and format on save",
-      pattern = Config.init,
-      callback = function(ev)
-         local str = table.concat(api.nvim_buf_get_lines(ev.buf, 0, -1, false), "\n")
-         Packages = tangle.parse(str)
-         local conform_ok, conform = pcall(require, "conform")
-         if conform_ok then
-            conform.format({ bufnr = api.nvim_get_current_buf(), formatters = { "injected" } })
-         end
-      end,
    })
 
    api.nvim_create_autocmd("FileType", {
@@ -361,15 +367,20 @@ local function setup_dependencies()
    -- end
 end
 
-local function setup()
+function M.init()
    local lib_path = {
       vim.fs.joinpath(vim.fs.normalize("~"), ".luarocks", "share", "lua", "5.1", "?.lua"),
       vim.fs.joinpath(vim.fs.normalize("~"), ".luarocks", "share", "lua", "5.1", "?", "init.lua"),
    }
    package.path = package.path .. ";" .. table.concat(lib_path, ";")
 
+   -- TODO: vim.g.lit defaulttable?
+
    Config = vim.tbl_deep_extend("force", Config, vim.g.lit or {})
-   Packages, Order = tangle.parse(util.read_file(Config.init))
+   local pkgs = {}
+   pkgs, Order = tangle.parse(util.read_file(Config.init))
+
+   update_packages(pkgs)
 
    for _, name in ipairs(Order) do
       local pkg = Packages[name]
@@ -382,13 +393,9 @@ local function setup()
    setup_usercmds()
    -- setup_dependencies()
 
-   lock.load(Packages)
-   exe_op("resolve", Pkg.resolve, Pkg.diff_gather(Packages, lock.lock), true)
+   lock.load()
+   exe_op("resolve", Pkg.resolve, Pkg.get_diff(Packages, lock.lock), true)
    vim.g.lit_loaded = true
-end
-
-if not vim.g.lit_loaded and #api.nvim_list_uis() ~= 0 then
-   setup()
 end
 
 return M
