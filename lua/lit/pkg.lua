@@ -95,10 +95,10 @@ function M.build(pkg)
    local cmd = pkg.build
    if cmd:sub(1, 1) == ":" then
       ---@diagnostic disable-next-line: param-type-mismatch
-      local ok, err = pcall(vim.cmd, cmd)
+      local ok, err = pcall(vim.cmd, cmd:sub(2))
       log.report(pkg.name, "build", ok and "ok" or "err", err)
    else
-      fn.jobstart(pkg.build, {
+      local job_opt = {
          cwd = pkg.dir,
          on_exit = function(_, code)
             log.report(
@@ -110,7 +110,8 @@ function M.build(pkg)
                "failed to run shell command, err code:" .. code
             )
          end,
-      })
+      }
+      fn.jobstart(pkg.build, job_opt)
    end
 end
 
@@ -136,11 +137,12 @@ end
 ---@param pkg lit.pkg
 ---@param counter function
 ---@param build_queue table
-function M.clone_or_pull(pkg, counter, build_queue)
+---@param Packages lit.packages
+function M.clone_or_pull(pkg, counter, build_queue, Packages)
    if Filter.to_update(pkg) then
-      Git.pull(pkg, counter, build_queue)
+      Git.pull(pkg, counter, build_queue, Packages)
    elseif Filter.to_install(pkg) then
-      Git.clone(pkg, counter, build_queue)
+      Git.clone(pkg, counter, build_queue, Packages)
    end
 end
 
@@ -148,11 +150,12 @@ end
 ---
 ---@param src lit.pkg
 ---@param dst lit.pkg
-local function move(src, dst)
+---@param Packages lit.packages
+local function move(src, dst, Packages)
    local ok = uv.fs_rename(src.dir, dst.dir)
    if ok then
       dst.status = Status.INSTALLED
-      lock.write()
+      lock.update(Packages)
    else
       log.err(src, "move faild!", "move")
    end
@@ -189,7 +192,7 @@ end
 ---@param Packages lit.packages[]
 function M.resolve(pkg, counter, build_queue, Packages)
    if Filter.to_move(pkg) then
-      move(pkg, Packages[pkg.name])
+      move(pkg, Packages[pkg.name], Packages)
    elseif Filter.to_reclone(pkg) then
       Git.reclone(Packages[pkg.name], counter, build_queue)
    end

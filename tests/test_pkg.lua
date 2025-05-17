@@ -23,4 +23,37 @@ T["diff_gather"] = function()
    eq(diff, M.diff_gather(P, L))
 end
 
+T["is_opt"] = function()
+   eq(
+      true,
+      M.is_opt({
+         cmd = true,
+      })
+   )
+   eq(
+      true,
+      M.is_opt({
+         keys = true,
+      })
+   )
+   eq(
+      true,
+      M.is_opt({
+         event = true,
+      })
+   )
+   eq(
+      true,
+      M.is_opt({
+         ft = true,
+      })
+   )
+   eq(
+      true,
+      M.is_opt({
+         opt = true,
+      })
+   )
+end
+
 return T

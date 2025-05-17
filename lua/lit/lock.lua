@@ -1,10 +1,10 @@
 local M = { lock = {} }
-local Packages = {}
 local Config = require("lit.config")
 local util = require("lit.util")
 local json = vim.json
 
-function M.write()
+---@param Packages lit.packages
+function M.update(Packages)
    local pkgs = {}
    for name, pkg in pairs(Packages) do
       pkgs[name] = {
@@ -18,7 +18,8 @@ function M.write()
    M.lock = Packages
 end
 
-function M.load()
+---@param Packages lit.packages
+function M.load(Packages)
    local lock_str = util.read_file(Config.lock, "{}")
    if lock_str and lock_str ~= "" then
       local result = json.decode(lock_str)
@@ -27,8 +28,7 @@ function M.load()
       end
       M.lock = not vim.tbl_isempty(result) and result or Packages
    else
-      M.write()
-      M.lock = Packages
+      M.update(Packages)
    end
 end
 

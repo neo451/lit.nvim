@@ -5,20 +5,15 @@ local Config = require("lit.config")
 local Git = require("lit.manager.git")
 local Status = require("lit.status")
 local Pkg = require("lit.pkg")
+local Filter = require("lit.filter")
 local util = require("lit.util")
 local log = require("lit.log")
 local lock = require("lit.lock")
 local tangle = require("lit.tangle")
 local actions = require("lit.actions") -- TODO: in config
-local Filter = require("lit.filter")
 
-local StatusL = {}
 local Packages = {} -- Table of pkgs loaded from the init.md
 local Order = {}
-
-for k, v in pairs(Status) do
-   StatusL[v] = k
-end
 
 -- Copy environment variables once. Doing it for every process seems overkill.
 -- TODO:
@@ -57,38 +52,38 @@ local function exe_op(op, f, pkgs, silent, after)
       if not silent then
          vim.notify(" Lit: Nothing to " .. op)
       end
+      --- TODO: doautocmd
       vim.cmd("doautocmd User LitDone" .. op:gsub("^%l", string.upper))
       return
    end
 
    local build_queue = {}
 
-   after = after
-      or function(ok, err, nop)
-         local summary = " Lit: %s complete. %d ok; %d errors;" .. (nop > 0 and " %d no-ops" or "")
-         vim.notify(string.format(summary, op, ok, err, nop))
+   local function default_after(ok, err, nop)
+      local summary = " Lit: %s complete. %d ok; %d errors;" .. (nop > 0 and " %d no-ops" or "")
+      vim.notify(string.format(summary, op, ok, err, nop))
 
-         vim.cmd("packloadall! | silent! helptags ALL")
+      vim.cmd("packloadall! | silent! helptags ALL")
 
-         for _, name in ipairs(Order) do
-            local pkg = Packages[name]
-            if
-               Filter.installed(pkg)
-               and not pkg.loaded
-               and not Pkg.is_opt(pkg)
-               and not vim.list_contains(build_queue, pkg)
-            then
-               Pkg.load(pkg)
-            end
+      for _, name in ipairs(Order) do
+         local pkg = Packages[name]
+         if
+            Filter.installed(pkg)
+            and not pkg.loaded
+            and not Pkg.is_opt(pkg)
+            and not vim.list_contains(build_queue, pkg)
+         then
+            Pkg.load(pkg)
          end
-
-         if #build_queue ~= 0 then
-            exe_op("build", Pkg.build, build_queue)
-         end
-         vim.cmd("doautocmd User LitDone" .. op:gsub("^%l", string.upper))
       end
 
-   local counter = new_counter(#pkgs, after)
+      if #build_queue ~= 0 then
+         exe_op("build", Pkg.build, build_queue)
+      end
+      vim.cmd("doautocmd User LitDone" .. op:gsub("^%l", string.upper))
+   end
+
+   local counter = new_counter(#pkgs, after or default_after)
    counter() -- Initialize counter
 
    for _, pkg in pairs(pkgs) do
@@ -101,6 +96,10 @@ local function get_name(pkg)
    return pkg.as or pkg.name
 end
 
+local function edit(filename)
+   vim.cmd("e " .. filename)
+end
+
 ---Installs all packages listed in your configuration. If a package is already
 ---installed, the function ignores it. If a package has a `build` argument,
 ---it'll be executed after the package is installed.
@@ -109,7 +108,7 @@ M.install = {
       if name then
          local counter = new_counter(1, function() end)
          counter() -- Initialize counter
-         Git.clone(Packages[name], counter, {})
+         Git.clone(Packages[name], counter, {}, Packages)
       else
          exe_op("install", Git.clone, vim.tbl_filter(Filter.to_install, Packages))
       end
@@ -130,7 +129,7 @@ M.update = {
       if name then
          local counter = new_counter(1, function() end)
          counter() -- Initialize counter
-         Git.pull(Packages[name], counter, {})
+         Git.pull(Packages[name], counter, {}, Packages)
       else
          exe_op("update", Git.pull, vim.tbl_filter(Filter.to_update, Packages))
       end
@@ -165,10 +164,6 @@ M.build = {
       return vim.tbl_map(get_name, vim.tbl_filter(Filter.has_build, Packages))
    end,
 }
-
-local function edit(filename)
-   vim.cmd("e " .. filename)
-end
 
 M.open = {
    impl = function(name)
@@ -212,7 +207,7 @@ M.list = {
    impl = function()
       local lines = vim.tbl_map(function(name)
          local pkg = Packages[name]
-         return "- " .. get_name(pkg) .. " " .. StatusL[pkg.status]
+         return "- " .. get_name(pkg) .. " " .. Status[pkg.status]
       end, Order)
       print(table.concat(lines, "\n"))
    end,
@@ -387,7 +382,7 @@ local function setup()
    setup_usercmds()
    -- setup_dependencies()
 
-   lock.load()
+   lock.load(Packages)
    exe_op("resolve", Pkg.resolve, Pkg.diff_gather(Packages, lock.lock), true)
    vim.g.lit_loaded = true
 end
