@@ -1,14 +1,21 @@
 local fs, fn = vim.fs, vim.fn
 
+local init = fs.joinpath(fn.stdpath("config"), "init.md")
+local lock = fs.joinpath(fn.stdpath("config"), "lit-lock.json")
+local path = fs.joinpath(fn.stdpath("data"), "site", "pack", "lit")
+local log = fs.joinpath(fn.stdpath("log"), "lit.log")
+
+---@class lit.config
+---@field init? string
+---@field lock? string
+---@field log? string
+---@field path? string
+---@field url_format? string
 return {
-   ---@diagnostic disable-next-line: param-type-mismatch
-   init = fs.joinpath(fn.stdpath("config"), "init.md"),
-   ---@diagnostic disable-next-line: param-type-mismatch
-   lock = fs.joinpath(fn.stdpath("config"), "lit-lock.json"),
-   ---@diagnostic disable-next-line: param-type-mismatch
-   path = fs.joinpath(fn.stdpath("data"), "site", "pack", "lit"),
-   ---@diagnostic disable-next-line: param-type-mismatch
-   log = fs.joinpath(fn.stdpath("log"), "lit.log"),
+   init = init,
+   lock = lock,
+   path = path,
+   log = log,
    url_format = "https://github.com/%s.git",
    clone_args = { "--depth=1", "--recurse-submodules", "--filter=blob:none" },
    dependencies = {

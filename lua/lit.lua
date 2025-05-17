@@ -1,4 +1,4 @@
-local M = {}
+local cmds = {}
 
 -- TODO: uninstall
 local api = vim.api
@@ -104,7 +104,7 @@ end
 ---Installs all packages listed in your configuration. If a package is already
 ---installed, the function ignores it. If a package has a `build` argument,
 ---it'll be executed after the package is installed.
-M.install = {
+cmds.install = {
    impl = function(name)
       if name then
          local counter = new_counter(1, function() end)
@@ -125,7 +125,7 @@ M.install = {
 -- function M.update()
 --    exe_op("update", pull, vim.tbl_filter(Filter.to_update, Packages))
 -- end
-M.update = {
+cmds.update = {
    impl = function(name)
       if name then
          local counter = new_counter(1, function() end)
@@ -140,7 +140,7 @@ M.update = {
    end,
 }
 
-M.build = {
+cmds.build = {
    impl = function(name)
       if not name then
          local pkgs = vim.tbl_filter(function(pkg)
@@ -165,7 +165,7 @@ M.build = {
    end,
 }
 
-M.open = {
+cmds.open = {
    impl = function(name)
       if not name then
          vim.ui.select(Order, {}, function(choice)
@@ -180,21 +180,21 @@ M.open = {
    end,
 }
 
-M.sync = {
+cmds.sync = {
    impl = function()
-      M.clean()
+      cmds.clean()
       exe_op("sync", Pkg.clone_or_pull, vim.tbl_filter(Filter.not_removed, Packages))
    end,
 }
 
-M.edit = {
+cmds.edit = {
    impl = function()
-      vim.cmd("e " .. Config.init)
+      edit(Config.init)
    end,
 }
 
 --- TODO:
-M.list = {
+cmds.list = {
    impl = function()
       local lines = vim.tbl_map(function(name)
          local pkg = Packages[name]
@@ -204,7 +204,7 @@ M.list = {
    end,
 }
 
-M.log = {
+cmds.log = {
    impl = function()
       edit(Config.log)
    end,
@@ -225,13 +225,13 @@ local function setup_usercmds()
       local op = table.remove(opt.fargs, 1)
       if not op then
          return vim.ui.select(ops, {}, function(choice)
-            if M[choice] then
-               M[choice].impl() -- TODO: check arity if not enough
+            if cmds[choice] then
+               cmds[choice].impl() -- TODO: check arity if not enough
             end
          end)
       end
-      if M[op] then
-         M[op].impl(unpack(opt.fargs))
+      if cmds[op] then
+         cmds[op].impl(unpack(opt.fargs))
       end
    end, {
       nargs = "*",
@@ -240,11 +240,11 @@ local function setup_usercmds()
          if
             subcmd_key
             and subcmd_arg_lead
-            and M[subcmd_key]
-            and type(M[subcmd_key]) == "table"
-            and M[subcmd_key].complete
+            and cmds[subcmd_key]
+            and type(cmds[subcmd_key]) == "table"
+            and cmds[subcmd_key].complete
          then
-            local sub_items = M[subcmd_key].complete()
+            local sub_items = cmds[subcmd_key].complete()
             return vim.iter(sub_items)
                :filter(function(arg)
                   return arg:find(subcmd_arg_lead) ~= nil
@@ -254,7 +254,7 @@ local function setup_usercmds()
          if line:match("^['<,'>]*Lit*%s+%w*$") then
             local subcommand_keys = vim.tbl_filter(function(name)
                return not vim.startswith(name, "_")
-            end, vim.tbl_keys(M))
+            end, vim.tbl_keys(cmds))
             return vim.iter(subcommand_keys)
                :filter(function(key)
                   return key:find(arg_lead) ~= nil
@@ -367,6 +367,8 @@ local function setup_dependencies()
    -- end
 end
 
+local M = {}
+
 function M.init()
    local lib_path = {
       vim.fs.joinpath(vim.fs.normalize("~"), ".luarocks", "share", "lua", "5.1", "?.lua"),
@@ -376,7 +378,7 @@ function M.init()
 
    -- TODO: vim.g.lit defaulttable?
 
-   Config = vim.tbl_deep_extend("force", Config, vim.g.lit or {})
+   Config = vim.tbl_deep_extend("force", Config, vim.g.lit or {}) -- TODO: config cached
    local pkgs = {}
    pkgs, Order = tangle.parse(util.read_file(Config.init))
 
@@ -397,5 +399,7 @@ function M.init()
    exe_op("resolve", Pkg.resolve, Pkg.get_diff(Packages, lock.lock), true)
    vim.g.lit_loaded = true
 end
+
+M.cmds = cmds
 
 return M
