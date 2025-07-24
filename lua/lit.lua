@@ -101,6 +101,25 @@ local function edit(filename)
    vim.cmd("e " .. filename)
 end
 
+local function install(pkg)
+   if vim.islist(pkg) then
+      local urls = {}
+      for _, p in ipairs(pkg) do
+         urls[#urls + 1] = {
+            src = p.url,
+            version = p.version,
+         }
+      end
+      vim.print(urls)
+      vim.pack.add(urls)
+   else
+      vim.pack.add({ {
+         src = pkg.url,
+         version = pkg.version,
+      } })
+   end
+end
+
 ---Installs all packages listed in your configuration. If a package is already
 ---installed, the function ignores it. If a package has a `build` argument,
 ---it'll be executed after the package is installed.
@@ -109,35 +128,20 @@ cmds.install = {
       if name then
          local counter = new_counter(1, function() end)
          counter() -- Initialize counter
-         Git.clone(Packages[name], counter, {})
+         install(Packages[name])
+         -- vim.pack.add({ Packages[name].url })
+         -- Git.clone(Packages[name], counter, {})
       else
-         exe_op("install", Git.clone, vim.tbl_filter(Filter.to_install, Packages))
+         install(vim.tbl_filter(Filter.to_install, Packages))
       end
    end,
    complete = function()
       return vim.tbl_map(get_name, vim.tbl_filter(Filter.to_install, Packages))
    end,
 }
----Updates the installed packages listed in your configuration. If a package
----hasn't been installed with |MInstall|, the function ignores it. If a
----package had changes and it has a `build` argument, then the `build` argument
----will be executed.
--- function M.update()
---    exe_op("update", pull, vim.tbl_filter(Filter.to_update, Packages))
--- end
+
 cmds.update = {
-   impl = function(name)
-      if name then
-         local counter = new_counter(1, function() end)
-         counter() -- Initialize counter
-         Git.pull(Packages[name], counter, {})
-      else
-         exe_op("update", Git.pull, vim.tbl_filter(Filter.to_update, Packages))
-      end
-   end,
-   complete = function()
-      return vim.tbl_map(get_name, vim.tbl_filter(Filter.to_update, Packages))
-   end,
+   impl = vim.pack.update,
 }
 
 cmds.build = {
@@ -367,6 +371,17 @@ local function setup_dependencies()
    -- end
 end
 
+local function load_packages()
+   vim.cmd("packadd lz.n")
+
+   for _, name in ipairs(Order) do
+      local pkg = Packages[name]
+      if Filter.installed(pkg) and not pkg.loaded and not Pkg.is_opt(pkg) then
+         Pkg.load(pkg)
+      end
+   end
+end
+
 local M = {}
 
 function M.init()
@@ -384,12 +399,7 @@ function M.init()
 
    update_packages(pkgs)
 
-   for _, name in ipairs(Order) do
-      local pkg = Packages[name]
-      if Filter.installed(pkg) and not pkg.loaded and not Pkg.is_opt(pkg) then
-         Pkg.load(pkg)
-      end
-   end
+   load_packages()
 
    setup_autocmds()
    setup_usercmds()
@@ -397,6 +407,7 @@ function M.init()
 
    lock.load()
    exe_op("resolve", Pkg.resolve, Pkg.get_diff(Packages, lock.lock), true)
+
    vim.g.lit_loaded = true
 end
 

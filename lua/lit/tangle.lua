@@ -3,14 +3,13 @@ local P, C, Ct = lpeg.P, lpeg.C, lpeg.Ct
 local Config = require("lit.config")
 local Git = require("lit.manager.git")
 local Status = require("lit.status")
-local Pkg = require("lit.pkg")
 local util = require("lit.util")
 
 ---@param url string
----@param opt boolean?
+---@param attrs table<string, any>
 ---@return table
-local function url2pkg(url, opt)
-   opt = opt or false
+local function url2pkg(url, attrs)
+   local opt = true -- TODO: pkg.is_opt
    url = (url:match("^https?://") and url:gsub(".git$", "") .. ".git") -- [1] is a URL
       or string.format(Config.url_format, url) -- [1] is a repository name
    local name = url:gsub("%.git$", ""):match("/([%w-_.]+)$")
@@ -18,6 +17,7 @@ local function url2pkg(url, opt)
 
    return {
       name = name,
+      version = (attrs and attrs.version) and attrs.version,
       url = url,
       dir = dir,
       hash = Git.get_hash(dir), -- TODO:
@@ -77,7 +77,7 @@ local function parse(str)
       if not url:find("/") then
          return
       end
-      local ret = url2pkg(url, Pkg.is_opt(attrs))
+      local ret = url2pkg(url, attrs)
       local chunks = { ... }
       if not vim.tbl_isempty(chunks) then
          ret.config = chunks

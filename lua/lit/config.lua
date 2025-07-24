@@ -2,7 +2,7 @@ local fs, fn = vim.fs, vim.fn
 
 local init = fs.joinpath(fn.stdpath("config"), "init.md")
 local lock = fs.joinpath(fn.stdpath("config"), "lit-lock.json")
-local path = fs.joinpath(fn.stdpath("data"), "site", "pack", "lit")
+local path = fs.joinpath(fn.stdpath("data"), "site", "pack", "core")
 local log = fs.joinpath(fn.stdpath("log"), "lit.log")
 
 ---@class lit.config

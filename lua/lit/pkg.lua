@@ -58,13 +58,14 @@ end
 ---@param attrs table<string, any>
 ---@return boolean
 function M.is_opt(attrs)
-   local keys = { cmd = true, keys = true, event = true, ft = true, opt = true }
-   for k in pairs(keys) do
-      if attrs[k] then
-         return true
-      end
-   end
    return false
+   -- local keys = { cmd = true, keys = true, event = true, ft = true, opt = true }
+   -- for k in pairs(keys) do
+   --    if attrs[k] then
+   --       return true
+   --    end
+   -- end
+   -- return false
 end
 
 ---@param pkg lit.pkg
