@@ -6,8 +6,8 @@ local runners = require("lit.runners")
 local log = require("lit.log")
 local lock = require("lit.lock")
 local Config = require("lit.config")
-local Git = require("lit.manager.git")
 local Filter = require("lit.filter")
+local util = require("lit.util")
 
 ---@param name string
 ---@return string
@@ -137,17 +137,6 @@ function M.find_unlisted()
    return unlisted
 end
 
----@param pkg lit.pkg
----@param counter function
----@param build_queue table
-function M.clone_or_pull(pkg, counter, build_queue)
-   if Filter.to_update(pkg) then
-      Git.pull(pkg, counter, build_queue)
-   elseif Filter.to_install(pkg) then
-      Git.clone(pkg, counter, build_queue)
-   end
-end
-
 ---Move package to new location.
 ---
 ---@param src lit.pkg
@@ -195,7 +184,14 @@ function M.resolve(pkg, counter, build_queue)
    if Filter.to_move(pkg) then
       move(pkg, Packages[pkg.name])
    elseif Filter.to_reclone(pkg) then
-      Git.reclone(Packages[pkg.name], counter, build_queue)
+      -- Git.reclone(Packages[pkg.name], counter, build_queue)
+      local ok = util.rmdir(pkg.dir)
+      -- FIXME:
+      if ok then
+         vim.pack.add({ pkg }) -- TODO: test
+      else
+         print("falied to remove!!!")
+      end
    end
 end
 

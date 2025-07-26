@@ -1,13 +1,13 @@
 local lpeg, fs = vim.lpeg, vim.fs
 local P, C, Ct = lpeg.P, lpeg.C, lpeg.Ct
 local Config = require("lit.config")
-local Git = require("lit.manager.git")
+-- local Git = require("lit.manager.git")
 local Status = require("lit.status")
 local util = require("lit.util")
 
 ---@param url string
 ---@param attrs table<string, any>
----@return table
+---@return lit.pkg
 local function url2pkg(url, attrs)
    local opt = true -- TODO: pkg.is_opt
    url = (url:match("^https?://") and url:gsub(".git$", "") .. ".git") -- [1] is a URL
@@ -18,9 +18,10 @@ local function url2pkg(url, attrs)
    return {
       name = name,
       version = (attrs and attrs.version) and attrs.version,
-      url = url,
+      src = url,
+      url = url, -- TODO: remove
       dir = dir,
-      hash = Git.get_hash(dir), -- TODO:
+      -- hash = Git.get_hash(dir), -- TODO:
       status = (util.file_exists(dir) or name == "lit.nvim") and Status.INSTALLED or Status.TO_INSTALL,
    }
 end

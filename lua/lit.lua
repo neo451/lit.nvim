@@ -3,7 +3,6 @@ local cmds = {}
 -- TODO: uninstall
 local api = vim.api
 local Config = require("lit.config")
-local Git = require("lit.manager.git")
 local Status = require("lit.status")
 local Pkg = require("lit.pkg")
 local Filter = require("lit.filter")
@@ -15,14 +14,6 @@ local actions = require("lit.actions") -- TODO: in config
 
 local Packages = require("lit.packages") -- Table of pkgs loaded from the init.md
 local Order = {}
-
--- Copy environment variables once. Doing it for every process seems overkill.
--- TODO:
--- local Env = {}
--- for var, val in pairs(uv.os_environ()) do
---    table.insert(Env, string.format("%s=%s", var, val))
--- end
--- table.insert(Env, "GIT_TERMINAL_PROMPT=0")
 
 ---Object to track result of operations (installs, updates, etc.)
 ---@param total integer
@@ -101,23 +92,28 @@ local function edit(filename)
    vim.cmd("e " .. filename)
 end
 
+local function load_packages()
+   local ok = pcall(vim.cmd, "packadd lz.n")
+
+   if not ok then
+      return
+   end
+
+   for _, name in ipairs(Order) do
+      local pkg = Packages[name]
+      if Filter.installed(pkg) and not pkg.loaded and not Pkg.is_opt(pkg) then
+         Pkg.load(pkg)
+      end
+   end
+end
+
 local function install(pkg)
    if vim.islist(pkg) then
-      local urls = {}
-      for _, p in ipairs(pkg) do
-         urls[#urls + 1] = {
-            src = p.url,
-            version = p.version,
-         }
-      end
-      vim.print(urls)
-      vim.pack.add(urls)
+      vim.pack.add(pkg)
    else
-      vim.pack.add({ {
-         src = pkg.url,
-         version = pkg.version,
-      } })
+      vim.pack.add({ pkg })
    end
+   load_packages()
 end
 
 ---Installs all packages listed in your configuration. If a package is already
@@ -129,8 +125,6 @@ cmds.install = {
          local counter = new_counter(1, function() end)
          counter() -- Initialize counter
          install(Packages[name])
-         -- vim.pack.add({ Packages[name].url })
-         -- Git.clone(Packages[name], counter, {})
       else
          install(vim.tbl_filter(Filter.to_install, Packages))
       end
@@ -181,13 +175,6 @@ cmds.open = {
    end,
    complete = function()
       return vim.tbl_map(get_name, vim.tbl_filter(Filter.installed, Packages))
-   end,
-}
-
-cmds.sync = {
-   impl = function()
-      cmds.clean()
-      exe_op("sync", Pkg.clone_or_pull, vim.tbl_filter(Filter.not_removed, Packages))
    end,
 }
 
@@ -333,7 +320,6 @@ local function setup_autocmds()
 end
 
 local function setup_dependencies()
-   pcall(vim.cmd.packadd, "lz.n")
    for _, name in ipairs(Order) do
       local pkg = Packages[name]
       if Filter.installed(pkg) then
@@ -371,17 +357,6 @@ local function setup_dependencies()
    -- end
 end
 
-local function load_packages()
-   vim.cmd("packadd lz.n")
-
-   for _, name in ipairs(Order) do
-      local pkg = Packages[name]
-      if Filter.installed(pkg) and not pkg.loaded and not Pkg.is_opt(pkg) then
-         Pkg.load(pkg)
-      end
-   end
-end
-
 local M = {}
 
 function M.init()
@@ -406,7 +381,7 @@ function M.init()
    -- setup_dependencies()
 
    lock.load()
-   exe_op("resolve", Pkg.resolve, Pkg.get_diff(Packages, lock.lock), true)
+   -- exe_op("resolve", Pkg.resolve, Pkg.get_diff(Packages, lock.lock), true)
 
    vim.g.lit_loaded = true
 end

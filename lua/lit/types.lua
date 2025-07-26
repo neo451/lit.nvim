@@ -13,11 +13,11 @@
 ---@field type "lua" | "vim" | "fennel" | "moonscript"
 ---@field code string
 
----@class lit.pkg
+---@class lit.pkg: vim.pack.Spec
+---@field name string
 ---@field branch string
 ---@field pin boolean
 ---@field hash string
----@field name string
 ---@field url string
 ---@field dir string
 ---@field config lit.chunk[] | boolean FIXME: merge?
