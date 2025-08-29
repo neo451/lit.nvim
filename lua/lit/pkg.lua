@@ -1,13 +1,9 @@
 local M = {}
 
 local fs, fn, uv = vim.fs, vim.fn, vim.uv
-local Status = require("lit.status")
 local runners = require("lit.runners")
 local log = require("lit.log")
-local lock = require("lit.lock")
 local Config = require("lit.config")
-local Filter = require("lit.filter")
-local util = require("lit.util")
 
 ---@param name string
 ---@return string
@@ -136,79 +132,5 @@ function M.find_unlisted()
    end
    return unlisted
 end
-
----Move package to new location.
----
----@param src lit.pkg
----@param dst lit.pkg
-local function move(src, dst)
-   local ok = uv.fs_rename(src.dir, dst.dir)
-   if ok then
-      dst.status = Status.INSTALLED
-      lock.update()
-   else
-      log.err(src, "move faild!", "move")
-   end
-end
-
----Gather the difference between lock and packages
----
----@param Packages lit.packages
----@param Lock lit.packages
----@return lit.pkg[]
-function M.get_diff(Packages, Lock)
-   local diffs = {}
-   for name, lock_pkg in pairs(Lock) do
-      local pack_pkg = Packages[name]
-      if pack_pkg and Filter.not_removed(lock_pkg) then
-         for k, v in pairs({
-            dir = Status.TO_MOVE,
-            branch = Status.TO_RECLONE,
-            url = Status.TO_RECLONE,
-         }) do
-            if lock_pkg[k] ~= pack_pkg[k] then
-               lock_pkg.status = v
-               table.insert(diffs, lock_pkg)
-            end
-         end
-      end
-   end
-   return diffs
-end
-
----@param pkg lit.pkg
----@param counter function
----@param build_queue lit.pkg[]
-function M.resolve(pkg, counter, build_queue)
-   local Packages = require("lit.packages")
-   if Filter.to_move(pkg) then
-      move(pkg, Packages[pkg.name])
-   elseif Filter.to_reclone(pkg) then
-      -- Git.reclone(Packages[pkg.name], counter, build_queue)
-      local ok = util.rmdir(pkg.dir)
-      -- FIXME:
-      if ok then
-         vim.pack.add({ pkg }) -- TODO: test
-      else
-         print("falied to remove!!!")
-      end
-   end
-end
-
--- TODO:
----@param pkg lit.pkg
----@param counter function
--- function M.remove(pkg, counter)
---    local ok, err = pcall(util.rmdir, pkg.dir)
---    if ok then
---       counter(pkg.name, "remove", "ok")
---       Packages[pkg.name] = { name = pkg.name, status = Status.REMOVED }
---    else
---       if err then
---          log.err(pkg, "failed to remove", "remove")
---       end
---       lock.write()
---    end
--- end
 
 return M

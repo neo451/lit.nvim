@@ -15,11 +15,22 @@ local function url2pkg(url, attrs)
    local name = url:gsub("%.git$", ""):match("/([%w-_.]+)$")
    local dir = fs.joinpath(Config.path, opt and "opt" or "start", name)
 
+   local version
+   if attrs and attrs.version then
+      version = attrs.version
+
+      local sem_var = vim.version.range(version)
+      if sem_var then
+         version = sem_var
+      end
+   end
+
+   version = version
+
    return {
       name = name,
-      version = (attrs and attrs.version) and attrs.version,
+      version = version,
       src = url,
-      url = url, -- TODO: remove
       dir = dir,
       -- hash = Git.get_hash(dir), -- TODO:
       status = (util.file_exists(dir) or name == "lit.nvim") and Status.INSTALLED or Status.TO_INSTALL,

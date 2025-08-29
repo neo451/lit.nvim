@@ -8,7 +8,6 @@ local Pkg = require("lit.pkg")
 local Filter = require("lit.filter")
 local util = require("lit.util")
 local log = require("lit.log")
-local lock = require("lit.lock")
 local tangle = require("lit.tangle")
 local actions = require("lit.actions") -- TODO: in config
 
@@ -380,7 +379,6 @@ function M.init()
    setup_usercmds()
    -- setup_dependencies()
 
-   lock.load()
    -- exe_op("resolve", Pkg.resolve, Pkg.get_diff(Packages, lock.lock), true)
 
    vim.g.lit_loaded = true
