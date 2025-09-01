@@ -367,7 +367,9 @@ function M.init()
 
    -- TODO: vim.g.lit defaulttable?
 
-   Config = vim.tbl_deep_extend("force", Config, vim.g.lit or {}) -- TODO: config cached
+   local user_config = vim.g.lit or {}
+   user_config.init = vim.fs.normalize(user_config.init)
+   Config = vim.tbl_deep_extend("force", Config, user_config) -- TODO: config cached
    local pkgs = {}
    pkgs, Order = tangle.parse(util.read_file(Config.init))
 
