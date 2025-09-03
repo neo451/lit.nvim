@@ -32,6 +32,7 @@ local function url2pkg(url, attrs)
       version = version,
       src = url,
       dir = dir,
+      main = attrs and attrs.main,
       -- hash = Git.get_hash(dir), -- TODO:
       status = (util.file_exists(dir) or name == "lit.nvim") and Status.INSTALLED or Status.TO_INSTALL,
    }

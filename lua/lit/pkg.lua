@@ -17,6 +17,9 @@ M._normname = normname
 
 ---@param pkg lit.pkg
 local function get_main(pkg)
+   if pkg.main then
+      return pkg.main
+   end
    if pkg.name ~= "mini.nvim" and pkg.name:match("^mini%..*$") then
       return pkg.name
    end
