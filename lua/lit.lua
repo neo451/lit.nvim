@@ -194,6 +194,19 @@ cmds.list = {
    end,
 }
 
+cmds.del = {
+   impl = function()
+      vim.ui.select(Order, {
+         prompt = "pcakage to remove",
+      }, function(name)
+         if not name then
+            return
+         end
+         vim.pack.del({ name })
+      end)
+   end,
+}
+
 cmds.log = {
    impl = function()
       edit(Config.log)
@@ -208,6 +221,7 @@ local ops = {
    "edit",
    "log",
    "build",
+   "del",
 } -- TODO: enum
 
 local function setup_usercmds()
