@@ -1,7 +1,6 @@
 local lpeg, fs = vim.lpeg, vim.fs
 local P, C, Ct = lpeg.P, lpeg.C, lpeg.Ct
 local Config = require("lit.config")
--- local Git = require("lit.manager.git")
 local Status = require("lit.status")
 local util = require("lit.util")
 
@@ -25,6 +24,13 @@ local function url2pkg(url, attrs)
       end
    end
 
+   -- local cond
+   --
+   -- if attrs and attrs.cond then
+   --    cond = attrs.cond
+   --    print(cond)
+   -- end
+   --
    version = version
 
    return {
@@ -33,7 +39,6 @@ local function url2pkg(url, attrs)
       src = url,
       dir = dir,
       main = attrs and attrs.main,
-      -- hash = Git.get_hash(dir), -- TODO:
       status = (util.file_exists(dir) or name == "lit.nvim") and Status.INSTALLED or Status.TO_INSTALL,
    }
 end

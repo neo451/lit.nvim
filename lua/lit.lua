@@ -393,9 +393,13 @@ function M.init()
 
    setup_autocmds()
    setup_usercmds()
-   -- setup_dependencies()
 
-   -- exe_op("resolve", Pkg.resolve, Pkg.get_diff(Packages, lock.lock), true)
+   for _, pkg in pairs(Packages) do
+      if pkg.name ~= "lit.nvim" then
+         vim.pack.add({ pkg }) -- so that they show up as active in the current session, but should exclude uninstalled?
+      end
+   end
+   -- setup_dependencies()
 
    vim.g.lit_loaded = true
 end
