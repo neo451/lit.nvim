@@ -1,6 +1,5 @@
 local cmds = {}
 
--- TODO: uninstall
 local api = vim.api
 local Config = require("lit.config")
 local Status = require("lit.status")
@@ -394,11 +393,13 @@ function M.init()
    setup_autocmds()
    setup_usercmds()
 
+   local add_pkgs = {}
    for _, pkg in pairs(Packages) do
       if pkg.name ~= "lit.nvim" then
-         vim.pack.add({ pkg }) -- so that they show up as active in the current session, but should exclude uninstalled?
+         add_pkgs[#add_pkgs + 1] = pkg -- so that they show up as active in the current session, but should exclude uninstalled?
       end
    end
+   vim.pack.add(add_pkgs)
    -- setup_dependencies()
 
    vim.g.lit_loaded = true
