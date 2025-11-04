@@ -400,6 +400,17 @@ function M.init()
       end
    end
    vim.pack.add(add_pkgs)
+
+   -- TODO: prompt to clean plugins not in md?
+   local to_del = {}
+   for _, pack in ipairs(vim.pack.get()) do
+      if pack.active == false then
+         to_del[#to_del + 1] = pack.spec.name
+      end
+   end
+   if not vim.tbl_isempty(to_del) then
+      vim.pack.del(to_del)
+   end
    -- setup_dependencies()
 
    vim.g.lit_loaded = true
