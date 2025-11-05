@@ -99,8 +99,9 @@ local function load_packages()
 
    for _, name in ipairs(Order) do
       local pkg = Packages[name]
-      if Filter.installed(pkg) and not pkg.loaded and not Pkg.is_opt(pkg) then
+      if Filter.installed(pkg) and not pkg.loaded then
          Pkg.load(pkg)
+         pkg.loaded = true
       end
    end
 end

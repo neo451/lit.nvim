@@ -26,7 +26,7 @@ local function get_main(pkg)
    local norm_name = normname(pkg.name)
    ---@type string[]
    for name in
-      fs.dir(fs.joinpath(pkg.dir, "lua"), {
+      fs.dir(fs.joinpath(pkg.path, "lua"), {
          depth = 10,
       })
    do
@@ -92,7 +92,6 @@ function M.load(pkg)
          vim.cmd.packadd(pkg.name)
       end
    end
-   pkg.loaded = true
 end
 
 ---@param pkg lit.pkg
@@ -107,7 +106,7 @@ function M.build(pkg)
       log.report(pkg.name, "build", result, nil, nil, err or ("failed to run build for " .. pkg.name))
    else
       local job_opt = {
-         cwd = pkg.dir,
+         cwd = pkg.path,
          on_exit = function(_, code)
             local result = code == 0 and "ok" or "err"
             log.report(pkg.name, "build", result, nil, nil, "failed to run shell command, err code:" .. code)

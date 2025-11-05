@@ -10,7 +10,7 @@ local function log_update_changes(pkg, prev_hash, cur_hash)
    vim.system(
       { "git", "log", "--pretty=format:* %s", prev_hash .. ".." .. cur_hash },
       {
-         cwd = pkg.dir,
+         cwd = pkg.path,
       },
       vim.schedule_wrap(function(obj)
          assert(obj.code == 0, "Exited(" .. obj.code .. ")")

@@ -12,7 +12,7 @@ local function url2pkg(url, attrs)
    url = (url:match("^https?://") and url:gsub(".git$", "") .. ".git") -- [1] is a URL
       or string.format(Config.url_format, url) -- [1] is a repository name
    local name = url:gsub("%.git$", ""):match("/([%w-_.]+)$")
-   local dir = fs.joinpath(Config.path, opt and "opt" or "start", name)
+   local path = fs.joinpath(Config.path, opt and "opt" or "start", name)
 
    local version
    if attrs and attrs.version then
@@ -24,22 +24,15 @@ local function url2pkg(url, attrs)
       end
    end
 
-   -- local cond
-   --
-   -- if attrs and attrs.cond then
-   --    cond = attrs.cond
-   --    print(cond)
-   -- end
-   --
    version = version
 
    return {
       name = name,
       version = version,
       src = url,
-      dir = dir,
+      path = path,
       main = attrs and attrs.main,
-      status = (util.file_exists(dir) or name == "lit.nvim") and Status.INSTALLED or Status.TO_INSTALL,
+      status = (util.file_exists(path) or name == "lit.nvim") and Status.INSTALLED or Status.TO_INSTALL,
    }
 end
 

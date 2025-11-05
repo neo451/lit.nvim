@@ -46,7 +46,7 @@ local pkg_formats = {
 ---@return lit.pkg[]?
 function M._get_dependencies(pkg)
    for file, handler in pairs(pkg_formats) do
-      local fp = fs.joinpath(pkg.dir, file)
+      local fp = fs.joinpath(pkg.path, file)
       if file_exists(fp) then
          return handler(pkg, util.read_file(fp))
       end
