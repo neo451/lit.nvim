@@ -9,6 +9,14 @@ local util = require("lit.util")
 ---@return lit.pkg
 local function url2pkg(url, attrs)
    local opt = true -- TODO: pkg.is_opt
+
+   local _setup = false
+
+   if vim.endswith(url, "!") then
+      url = url:sub(1, -2)
+      _setup = true
+   end
+
    url = (url:match("^https?://") and url:gsub(".git$", "") .. ".git") -- [1] is a URL
       or string.format(Config.url_format, url) -- [1] is a repository name
    local name = url:gsub("%.git$", ""):match("/([%w-_.]+)$")
@@ -32,6 +40,7 @@ local function url2pkg(url, attrs)
       src = url,
       path = path,
       main = attrs and attrs.main,
+      config = _setup,
       status = (util.file_exists(path) or name == "lit.nvim") and Status.INSTALLED or Status.TO_INSTALL,
    }
 end

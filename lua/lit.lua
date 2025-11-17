@@ -306,7 +306,7 @@ local function setup_autocmds()
          require("lit.snipptes").init(ev.buf)
          require("lit.integrations.otter_ls").init()
 
-         vim.keymap.set("n", "<enter>", actions.eval_block, { buffer = ev.buf })
+         -- vim.keymap.set("n", "<enter>", actions.eval_block, { buffer = ev.buf })
          vim.keymap.set("n", "gx", actions.open_url, { buffer = ev.buf })
 
          vim.wo.spell = false
