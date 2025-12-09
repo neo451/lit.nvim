@@ -10,6 +10,7 @@ local log = require("lit.log")
 local tangle = require("lit.tangle")
 local actions = require("lit.actions") -- TODO: in config
 
+---@type vim.pack.Spec[]
 local Packages = require("lit.packages") -- Table of pkgs loaded from the init.md
 local Order = {}
 
@@ -34,7 +35,7 @@ end
 ---Boilerplate around operations (autocmds, counter initialization, etc.)
 ---@param op lit.op
 ---@param f function
----@param pkgs lit.pkg[]
+---@param pkgs vim.pack.Spec[]
 ---@param silent boolean?
 ---@param after function?
 local function exe_op(op, f, pkgs, silent, after)
@@ -59,7 +60,7 @@ local function exe_op(op, f, pkgs, silent, after)
          local pkg = Packages[name]
          if
             Filter.installed(pkg)
-            and not pkg.loaded
+            and not pkg.data.loaded
             and not Pkg.is_opt(pkg)
             and not vim.list_contains(build_queue, pkg)
          then
@@ -81,9 +82,9 @@ local function exe_op(op, f, pkgs, silent, after)
    end
 end
 
----@param pkg lit.pkg
+---@param pkg vim.pack.Spec
 local function get_name(pkg)
-   return pkg.as or pkg.name
+   return pkg.data.as or pkg.name
 end
 
 local function edit(filename)
@@ -91,7 +92,7 @@ local function edit(filename)
 end
 
 local function load_packages()
-   local ok = pcall(vim.cmd, "packadd lz.n")
+   local ok = pcall(vim.cmd.packadd, "lz.n")
 
    if not ok then
       return
@@ -99,9 +100,9 @@ local function load_packages()
 
    for _, name in ipairs(Order) do
       local pkg = Packages[name]
-      if Filter.installed(pkg) and not pkg.loaded then
-         Pkg.load(pkg)
-         pkg.loaded = true
+      local load_ok = Pkg.load(pkg)
+      if load_ok then
+         Packages[name].data.loaded = true
       end
    end
 end
@@ -166,10 +167,10 @@ cmds.open = {
    impl = function(name)
       if not name then
          vim.ui.select(Order, {}, function(choice)
-            edit(Packages[choice].dir)
+            edit(Packages[choice].data.dir)
          end)
       else
-         edit(Packages[name].dir)
+         edit(Packages[name].data.dir)
       end
    end,
    complete = function()
@@ -188,7 +189,7 @@ cmds.list = {
    impl = function()
       local lines = vim.tbl_map(function(name)
          local pkg = Packages[name]
-         return "- " .. get_name(pkg) .. " " .. Status[pkg.status]
+         return "- " .. get_name(pkg) .. " " .. Status[pkg.data.status]
       end, Order)
       print(table.concat(lines, "\n"))
    end,
@@ -210,6 +211,12 @@ cmds.del = {
 cmds.log = {
    impl = function()
       edit(Config.log)
+   end,
+}
+
+cmds.inspect = {
+   impl = function()
+      vim.print(Packages)
    end,
 }
 
@@ -318,18 +325,18 @@ local function setup_autocmds()
       -- vim.lsp.completion.enable(true, state.client_id, ev.buf, { autotrigger = true })
    })
 
-   api.nvim_create_autocmd("FileType", {
-      desc = "[lit.nvim]: setup lua_ls on lua file that is mapped to init.md",
-      pattern = "lua",
-      callback = function(ev)
-         -- TODO: avoid user config conflict?
-         if ev.file:find(Config.init) then
-            local lua_ls_id = assert(require("lit.integrations.lua_ls").init(ev.buf))
-            vim.bo[ev.buf].omnifunc = "v:lua.vim.lsp.omnifunc"
-            vim.lsp.completion.enable(true, lua_ls_id, ev.buf, { autotrigger = true }) -- TODO:
-         end
-      end,
-   })
+   -- api.nvim_create_autocmd("FileType", {
+   --    desc = "[lit.nvim]: setup lua_ls on lua file that is mapped to init.md",
+   --    pattern = "lua",
+   --    callback = function(ev)
+   --       -- TODO: avoid user config conflict?
+   --       if ev.file:find(Config.init) then
+   --          local lua_ls_id = assert(require("lit.integrations.lua_ls").init(ev.buf))
+   --          vim.bo[ev.buf].omnifunc = "v:lua.vim.lsp.omnifunc"
+   --          vim.lsp.completion.enable(true, lua_ls_id, ev.buf, { autotrigger = true }) -- TODO:
+   --       end
+   --    end,
+   -- })
 end
 
 local function setup_dependencies()
@@ -372,22 +379,38 @@ end
 
 local M = {}
 
-function M.init()
+local function setup_luarocks_path()
    local lib_path = {
       vim.fs.joinpath(vim.fs.normalize("~"), ".luarocks", "share", "lua", "5.1", "?.lua"),
       vim.fs.joinpath(vim.fs.normalize("~"), ".luarocks", "share", "lua", "5.1", "?", "init.lua"),
    }
    package.path = package.path .. ";" .. table.concat(lib_path, ";")
+end
+
+local function config_normalize(user_config)
+   user_config = user_config or {}
+   if type(user_config.init) == "string" then
+      user_config.init = { user_config.init }
+   end
+   user_config.init = vim.tbl_map(vim.fs.normalize, user_config.init)
+   return vim.tbl_deep_extend("force", Config, user_config) -- TODO: config cached
+end
+
+function M.init()
+   setup_luarocks_path()
 
    -- TODO: vim.g.lit defaulttable?
 
-   local user_config = vim.g.lit or {}
-   user_config.init = vim.fs.normalize(user_config.init)
-   Config = vim.tbl_deep_extend("force", Config, user_config) -- TODO: config cached
-   local pkgs = {}
-   pkgs, Order = tangle.parse(util.read_file(Config.init))
+   Config = config_normalize(vim.g.lit)
 
-   update_packages(pkgs)
+   local packages = {}
+   for _, file in ipairs(Config.init) do
+      local pkgs, order = tangle.parse(util.read_file(file))
+      packages = vim.tbl_extend("force", packages, pkgs)
+      vim.list_extend(Order, order)
+   end
+
+   update_packages(packages)
 
    load_packages()
 

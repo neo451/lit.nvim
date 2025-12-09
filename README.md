@@ -47,17 +47,17 @@ In your init.lua:
 ```lua
 local litpath = vim.fn.stdpath("data") .. "/site/pack/lit/start/lit.nvim"
 if not (vim.uv or vim.loop).fs_stat(litpath) then
-  local litrepo = "https://github.com/neo451/lit.nvim.git"
-  local out = vim.fn.system({ "git", "clone", "--filter=blob:none", litrepo, litpath })
-  if vim.v.shell_error ~= 0 then
-    vim.api.nvim_echo({
-      { "Failed to clone lit.nvim:\n", "ErrorMsg" },
-      { out,                           "WarningMsg" },
-      { "\nPress any key to exit..." },
-    }, true, {})
-    vim.fn.getchar()
-    os.exit(1)
-  end
+   local litrepo = "https://github.com/neo451/lit.nvim.git"
+   local out = vim.fn.system({ "git", "clone", "--filter=blob:none", litrepo, litpath })
+   if vim.v.shell_error ~= 0 then
+      vim.api.nvim_echo({
+         { "Failed to clone lit.nvim:\n", "ErrorMsg" },
+         { out, "WarningMsg" },
+         { "\nPress any key to exit..." },
+      }, true, {})
+      vim.fn.getchar()
+      os.exit(1)
+   end
 end
 ```
 
@@ -74,7 +74,7 @@ No need for a setup function
 
 ```lua
 vim.g.lit = {
-    -- not much here yet
+   -- not much here yet
 }
 ```
 

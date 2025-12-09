@@ -73,6 +73,21 @@ nmap - <cmd>Oil<cr>
 ```fennel
 (+ 1 1)
 ```
+
+
+# stevearc/conform.nvim
+
+```lua
+require("conform").setup({
+   formatters_by_ft = {
+      nix = { "alejandra" },
+      lua = { "stylua" },
+      markdown = { "prettier", "injected" },
+      quarto = { "prettier" },
+      qml = { "qmlformat" },
+   },
+})
+```
 ]]
 
 T["tangle"] = MiniTest.new_set()
@@ -84,10 +99,24 @@ T["tangle"]["return a map of headings and codeblocks"] = function()
    eq("nmap - <cmd>Oil<cr>", res["oil.nvim"].config[1].code)
    eq("vim", res["oil.nvim"].config[1].type)
    eq("fennel", res["oil.nvim"].config[2].type)
-   eq("https://github.com/nvim-treesitter/nvim-treesitter.git", res["nvim-treesitter"].url)
+   eq("https://github.com/nvim-treesitter/nvim-treesitter.git", res["nvim-treesitter"].src)
    eq("nvim-treesitter", res["nvim-treesitter"].name)
    eq("cargo build --release", res["blink.cmp"].build)
    eq("InsertEnter", res["blink.cmp"].event)
+
+   eq("lua", res["conform.nvim"].config[1].type)
+   eq(
+      [==[require("conform").setup({
+   formatters_by_ft = {
+      nix = { "alejandra" },
+      lua = { "stylua" },
+      markdown = { "prettier", "injected" },
+      quarto = { "prettier" },
+      qml = { "qmlformat" },
+   },
+})]==],
+      res["conform.nvim"].config[1].code
+   )
 end
 
 T["tangle"]["return the order of the modules written"] = function()
@@ -95,6 +124,7 @@ T["tangle"]["return the order of the modules written"] = function()
    eq("nvim-treesitter", res[1])
    eq("blink.cmp", res[2])
    eq("oil.nvim", res[3])
+   eq("conform.nvim", res[4])
 end
 
 local spec_str = [[

@@ -1,26 +1,9 @@
 local Config = require("lit.config")
 local util = require("lit.util")
 
----@param pkg lit.pkg
----@param prev_hash string
----@param cur_hash string
-local function log_update_changes(pkg, prev_hash, cur_hash)
-   local output = "\n\n" .. pkg.name .. " updated:\n"
-
-   vim.system(
-      { "git", "log", "--pretty=format:* %s", prev_hash .. ".." .. cur_hash },
-      {
-         cwd = pkg.path,
-      },
-      vim.schedule_wrap(function(obj)
-         assert(obj.code == 0, "Exited(" .. obj.code .. ")")
-         util.append_file(Config.log, output .. obj.stdout)
-      end)
-   )
-end
-
 -- TODO: add timestamp for err
----@param pkg lit.pkg
+--
+---@param pkg vim.pack.Spec
 ---@param err string
 local function log_err(pkg, err, op)
    local output = ("%s has %s error:\n%s\n\n"):format(pkg.name, op, err)
@@ -52,12 +35,13 @@ local function report(name, op, result, n, total, info)
    )
    if result == "err" then
       -- TODO:
-      log_err({ name = name }, err) -- TDOO: refactor and pass in type of op
+      log_err({
+         name = name,
+      }, err) -- TDOO: refactor and pass in type of op
    end
 end
 
 return {
-   changes = log_update_changes,
    err = log_err,
    report = report,
 }

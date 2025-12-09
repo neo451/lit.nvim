@@ -6,7 +6,7 @@ local util = require("lit.util")
 
 ---@param url string
 ---@param attrs table<string, any>
----@return lit.pkg
+---@return vim.pack.Spec
 local function url2pkg(url, attrs)
    local opt = true -- TODO: pkg.is_opt
 
@@ -36,12 +36,14 @@ local function url2pkg(url, attrs)
 
    return {
       name = name,
-      version = version,
       src = url,
-      path = path,
-      main = attrs and attrs.main,
-      config = _setup,
-      status = (util.file_exists(path) or name == "lit.nvim") and Status.INSTALLED or Status.TO_INSTALL,
+      version = version,
+      data = {
+         -- main = attrs and attrs.main,
+         path = path,
+         config = _setup,
+         status = (util.file_exists(path) or name == "lit.nvim") and Status.INSTALLED or Status.TO_INSTALL,
+      },
    }
 end
 
@@ -100,7 +102,7 @@ local function parse(str)
       local ret = url2pkg(url, attrs)
       local chunks = { ... }
       if not vim.tbl_isempty(chunks) then
-         ret.config = chunks
+         ret.data.config = chunks
       end
       return vim.tbl_extend("keep", ret, attrs)
    end

@@ -31,12 +31,9 @@
 ---@type vim.pack.Spec
 
 ---@class lit.pkg: vim.pack.Spec
----@field name string
 ---@field branch string
----@field src string
 ---@field path string
 ---@field config lit.chunk[] | boolean FIXME: merge?
----@field status integer
 ---@field build string
 ---@field cmd string
 ---@field colorscheme string
