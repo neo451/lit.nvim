@@ -104,7 +104,10 @@ local function parse(str)
       if not vim.tbl_isempty(chunks) then
          ret.data.config = chunks
       end
-      return vim.tbl_extend("keep", ret, attrs)
+      for k, v in pairs(attrs or {}) do
+         ret.data[k] = v
+      end
+      return ret
    end
 
    local function parse_header(header_str)

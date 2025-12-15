@@ -369,7 +369,6 @@ local function setup_dependencies()
       })
    end
 
-   -- pcall(vim.cmd.packadd, "lzn-auto-require")
    --
    -- local ok, lzn_auto = pcall(require, "lzn-auto-require")
    -- if ok then

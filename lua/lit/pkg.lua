@@ -78,7 +78,7 @@ function M.load(pkg)
    local ok
    if not data.loaded then
       if has_lzn then
-         ok = pcall(lzn.load, {
+         lzn.load({
             pkg.name,
             priority = data.priority,
             cmd = data.cmd,
