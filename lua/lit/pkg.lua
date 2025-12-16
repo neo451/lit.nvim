@@ -1,9 +1,8 @@
 local M = {}
 
-local fs, fn, uv = vim.fs, vim.fn, vim.uv
+local fs, fn = vim.fs, vim.fn
 local runners = require("lit.runners")
 local log = require("lit.log")
-local Config = require("lit.config")
 
 ---@param name string
 ---@return string
@@ -59,7 +58,14 @@ end
 ---@return boolean
 function M.is_opt(pkg)
    local attrs = pkg.data
-   local keys = { cmd = true, keys = true, event = true, ft = true, opt = true }
+   local keys = {
+      cmd = true,
+      keys = true,
+      event = true,
+      ft = true,
+      opt = true,
+      lazy = true,
+   }
    for k in pairs(keys) do
       if attrs[k] then
          return true
@@ -78,6 +84,9 @@ function M.load(pkg)
    local ok
    if not data.loaded then
       if has_lzn then
+         -- if not M.is_opt(pkg) then
+         --    print(pkg.name, M.is_opt(pkg))
+         -- end
          lzn.load({
             pkg.name,
             priority = data.priority,
@@ -119,25 +128,5 @@ function M.build(pkg)
       fn.jobstart(pkg.data.build, job_opt)
    end
 end
-
--- TODO:
--- ---@return lit.pkg[]
--- function M.find_unlisted()
---    local unlisted = {}
---    local Packages = require("lit.packages")
---    for _, subdir in ipairs({ "start", "opt" }) do
---       local dir = fs.joinpath(Config.path, subdir)
---       for name, t in fs.dir(dir) do
---          if t == "directory" and name ~= "lit.nvim" then
---             local pkg = Packages[name]
---             local fs_dir = fs.joinpath(dir, name)
---             if not pkg or pkg.dir ~= fs_dir then
---                table.insert(unlisted, { name = name, dir = dir })
---             end
---          end
---       end
---    end
---    return unlisted
--- end
 
 return M
