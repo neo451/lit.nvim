@@ -7,31 +7,31 @@ T["is_opt"] = function()
    eq(
       true,
       M.is_opt({
-         cmd = true,
+         data = { cmd = true },
       })
    )
    eq(
       true,
       M.is_opt({
-         keys = true,
+         data = { keys = true },
       })
    )
    eq(
       true,
       M.is_opt({
-         event = true,
+         data = { event = true },
       })
    )
    eq(
       true,
       M.is_opt({
-         ft = true,
+         data = { ft = true },
       })
    )
    eq(
       true,
       M.is_opt({
-         opt = true,
+         data = { opt = true },
       })
    )
 end

@@ -3,6 +3,7 @@ local M = {}
 local fs, fn = vim.fs, vim.fn
 local runners = require("lit.runners")
 local log = require("lit.log")
+local Status = require("lit.status")
 
 ---@param name string
 ---@return string
@@ -79,8 +80,17 @@ function M.load(pkg)
    if pkg.name == "lit.nvim" then
       return
    end
-   local has_lzn, lzn = pcall(require, "lz.n")
+
    local data = pkg.data
+   if data.status == Status.REMOVED then
+      return false
+   end
+
+   if data.status == Status.TO_INSTALL then
+      return true
+   end
+
+   local has_lzn, lzn = pcall(require, "lz.n")
    local ok
    if not data.loaded then
       if has_lzn then
